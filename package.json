@@ -1,0 +1,75 @@
+{
+  "name": "claude-multi-launcher",
+  "version": "1.0.0",
+  "description": "Launcher for running several Claude Desktop accounts side by side on Windows",
+  "author": "Sumant Sagar",
+  "license": "MIT",
+  "homepage": "https://github.com/SumantSagar73/claude-multi-launcher#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SumantSagar73/claude-multi-launcher.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SumantSagar73/claude-multi-launcher/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-desktop",
+    "windows",
+    "multi-account",
+    "launcher",
+    "electron"
+  ],
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "package": "node scripts/make-icon.js && electron-packager . \"Claude Multi Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"^/(dist|release|stage|test|scripts|build|spike-profile-a|.claude)($|/)\" --ignore=\"^/README.md$\"",
+    "release": "node scripts/release.js",
+    "install-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1",
+    "uninstall-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall.ps1"
+  },
+  "build": {
+    "appId": "com.multilauncher.claude",
+    "productName": "Claude Multi Launcher",
+    "artifactName": "Claude-Multi-Launcher-${version}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Multi Launcher",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    }
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.0.0"
+  }
+}

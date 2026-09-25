@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add an account
+        2. Press Open
+        3. ...
+  - type: input
+    id: launcher
+    attributes:
+      label: Launcher version
+      description: Shown in the release you installed, for example 1.0.0.
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Desktop version
+      description: Shown at the bottom of the launcher window.
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In the launcher, open Settings and press **Copy diagnostics**, then paste it here. It lists account names and
+        recent activity, and leaves out emails and sign-in codes. Error lines can include a folder path, so please skim
+        it before posting.
+      render: text
