@@ -5,9 +5,56 @@ not modify Claude Desktop; it starts it with different `--user-data-dir` folders
 
 ![Architecture overview: the launcher's main process, its renderer window and two PowerShell helpers, and the Claude Desktop instances it starts](overview.svg)
 
+The same diagram as text, for viewers that do not show images:
+
+```text
++------------------+   IPC    +------------------------------------+
+| Renderer window  |<-------->| Launcher (Electron main process)   |
+| account list,    |          | accounts, tray, hotkeys, decides   |
+| settings         |          | where a sign-in link goes          |
++------------------+          +------------------------------------+
+                                  |          ^              |
+                    state, styling|          | links        | starts Claude.exe with
+                                  v          |              | --user-data-dir=<account folder>
+                 +---------------------+  +-----------------+              |
+                 | Window helper       |  | Link watcher    |              v
+                 | PowerShell + C#     |  | PowerShell + C# |   +---------+  +-----------+  +-----------+
+                 | icon, title,        |  | sees new Claude |   | Default |  | Account A |  | Account B |
+                 | taskbar, trim, tile |  | processes every |   | your    |  | own login |  | own login |
+                 +---------------------+  | 20 ms           |   | login,  |  | and data  |  | and data  |
+                                          +-----------------+   | never   |  +-----------+  +-----------+
+                                                                | touched |
+                                                                +---------+
+                                       Claude Desktop (Microsoft Store app), never modified
+
+Data on disk: %APPDATA%\Claude Multi Launcher\profiles\<id>\  (one Claude data folder per account),
+              plus profiles.json, settings.json and launcher.log next to them.
+```
+
 ## Sign-in routing
 
 ![Sign-in routing: the browser sign-in ends at the Default Claude, the launcher reads the link from that process and forwards it to the account window that started the sign-in](sign-in-routing.svg)
+
+The same diagram as text:
+
+```text
+   Browser         Windows         Default Claude         Launcher         Account window X
+      |               |                   |                   |                     |
+      |<------------------------- 1 opens the sign-in page -------------------------|
+      |               |                   | 2 sees that log line, starts watching   |
+      |               |                   |                   |                     |
+      | 3 sign-in done: opens claude://login/...              |                     |
+      |-------------->|                   |                   |                     |
+      |               |                   |                   |                     |
+      |               | 4 starts Default Claude with the link |                     |
+      |               |------------------>|                   |                     |
+      |               |                   |                   |                     |
+      |               |                   | 5 sees that new process, reads the link |
+      |               |                   |                   | 6 forwards the link |
+      |               |                   |                   |-------------------->|
+      |               |                   |                   |                     |
+      |               |               7 ignores it            |    8 sign-in completes
+```
 
 1. The account window opens the sign-in page in your browser and logs `[Auth] Using system browser`.
 2. The launcher sees that line and starts watching for the link.
