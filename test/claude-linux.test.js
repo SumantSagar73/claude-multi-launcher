@@ -66,6 +66,10 @@ test('Chromium child processes that rewrite their title as one string are still 
   assert.deepEqual(found[0].pids.sort(), [100, 101, 102]);
   assert.deepEqual(linux.splitCmdline('/a/b --x=1 --y\0'), ['/a/b', '--x=1', '--y']);
   assert.deepEqual(linux.splitCmdline('/a/b\0--x=1 2\0'), ['/a/b', '--x=1 2']); // a real argv is never re-split
+  // a rewritten command line must keep a data folder with spaces whole
+  const rewritten = '/usr/lib/claude-desktop/claude-desktop --user-data-dir=/home/u/.config/Claude Multi Launcher/profiles/abc --class=claude-multi-abc claude://login/x';
+  assert.equal(linux.parseUserDataDirArgs(linux.splitCmdline(rewritten)), '/home/u/.config/Claude Multi Launcher/profiles/abc');
+  assert.deepEqual(linux.splitCmdline(rewritten).slice(-2), ['--class=claude-multi-abc', 'claude://login/x']);
 });
 
 test('processes that vanish or cannot be read are skipped', async () => {

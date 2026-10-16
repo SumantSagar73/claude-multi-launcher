@@ -21,6 +21,10 @@ All notable changes to this project are recorded here. The format follows
   when the account is opened or edited and removed with it, so the dock and task switcher can tell accounts apart. On
   Wayland, accounts are started through XWayland (`--ozone-platform=x11`) so the class is honoured;
   `CML_NATIVE_WAYLAND=1` opts out.
+- Linux: while **Catch sign-in links** is on, the launcher takes the handler back when Claude Desktop re-claims it at
+  start-up, and a link handed to the launcher is never ignored because the process watcher saw it first.
+- Linux: a command line that Chromium rewrote into one string no longer breaks account detection when the data folder
+  has spaces in its name.
 - Linux: when nothing says which account began a sign-in, the account that started most recently is used (also after
   the launcher itself was restarted).
 - The installed `claude-multi-launcher` command now starts in the background instead of holding the terminal.

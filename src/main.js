@@ -49,6 +49,7 @@ const LINK_ARG = linkArg(process.argv);
 const WATCH_AFTER_OPEN_MS = 10 * 60 * 1000;
 const WATCH_AFTER_AUTH_MS = 5 * 60 * 1000;
 const DEDUPE_MS = 60 * 1000;
+const HANDLER_DEDUPE_MS = 5 * 1000;
 const BACKGROUND_AFTER_MS = Number(process.env.CML_BACKGROUND_MS) || 3 * 60 * 1000; // out of focus this long: release idle memory
 const TRIM_EVERY_MS = Math.max(BACKGROUND_AFTER_MS, 15 * 1000);
 const DISK_TTL_MS = 2 * 60 * 1000;
@@ -66,7 +67,8 @@ let claudeInfo = null;
 let claudeError = null;
 let caps = { trim: false, tile: false, focus: false, style: false, linkHandler: false, reason: '' };
 let lastHandlerCheck = 0;
-let linkHandlerOn = false; // is this launcher the system's handler for claude:// links? (Linux) // what this system lets the launcher do
+let lastHandlerNote = 0;
+let linkHandlerOn = false; // is this launcher the system's handler for claude:// links? (Linux)
 let refreshTimer = null;
 let trayKey = '';
 let watchUntil = 0;
@@ -84,6 +86,7 @@ const warnedVersions = new Set();
 const lastAutoCloseWarn = new Map(); // profile id -> ms, so an idle-close attempt is only noted once per account
 const authSeen = new Map(); // profile id -> ms of the last sign-in page we noticed in its log
 const recentLinks = new Map(); // link -> ms, so one link is never forwarded twice
+const recentHandlerLinks = new Map(); // link -> ms of the last time the system handed it to the launcher itself
 const activity = []; // newest first, no secrets
 
 function note(msg) {
@@ -116,10 +119,7 @@ async function refresh() {
   try {
     claudeInfo = await claude.findClaude();
     claudeError = null;
-    if (caps.linkHandler && Date.now() - lastHandlerCheck > 30_000) {
-      lastHandlerCheck = Date.now();
-      linkHandlerOn = await linkHandler.isOn();
-    }
+    maintainLinkHandler();
     await takeSnapshot();
     noticeClaudeUpdate();
     syncHelper();
@@ -183,7 +183,7 @@ function buildState() {
       autoFreeMemory: store.settings.autoFreeMemory !== false,
       autoCloseHours: store.settings.autoCloseHours || 0,
       startWithWindows: autostartOn(),
-      linkHandler: linkHandlerOn,
+      linkHandler: !!store.settings.linkHandler || linkHandlerOn,
       canAutostart: IS_LINUX || app.isPackaged,
       canShortcuts: IS_LINUX || app.isPackaged,
     },
@@ -499,9 +499,17 @@ function launchTimes(running) {
 // rather than left for Claude to find.
 async function routeLink(url, { forwardOthers }) {
   const now = Date.now();
-  if (now - (recentLinks.get(url) || 0) < DEDUPE_MS) return;
+  if (forwardOthers) {
+    // The system gave the link to the launcher itself. Only a quick double click is ignored: the same link may already
+    // have been seen by the process watcher (and left with Default), which must not stop the user trying again.
+    if (now - (recentHandlerLinks.get(url) || 0) < HANDLER_DEDUPE_MS) return;
+    recentHandlerLinks.set(url, now);
+  } else if (now - (recentLinks.get(url) || 0) < DEDUPE_MS) {
+    return;
+  }
   recentLinks.set(url, now);
   for (const [k, t] of recentLinks) if (now - t > DEDUPE_MS) recentLinks.delete(k);
+  for (const [k, t] of recentHandlerLinks) if (now - t > HANDLER_DEDUPE_MS) recentHandlerLinks.delete(k);
 
   try {
     const { profiles, running } = await takeSnapshot();
@@ -539,6 +547,35 @@ async function routeLink(url, { forwardOthers }) {
   refresh();
 }
 
+// Claude Desktop claims claude:// for itself every time it starts, which undoes the user's choice. While "Catch sign-in
+// links" is on, notice that and take the handler back. Cheap (one xdg-mime call), so it also runs a few seconds after
+// each account is opened, which is when Claude does it.
+let handlerBusy = false;
+async function maintainLinkHandler(force) {
+  if (!caps.linkHandler || handlerBusy) return;
+  if (!force && Date.now() - lastHandlerCheck < 5000) return;
+  lastHandlerCheck = Date.now();
+  handlerBusy = true;
+  try {
+    linkHandlerOn = await linkHandler.isOn();
+    if (!linkHandlerOn && store.settings.linkHandler) {
+      await linkHandler.enable({ exec: selfCommand(), icon: launcherIconPath(), stateFile: path.join(app.getPath('userData'), 'previous-link-handler') });
+      linkHandlerOn = await linkHandler.isOn();
+      if (Date.now() - lastHandlerNote > 10 * 60 * 1000) {
+        lastHandlerNote = Date.now();
+        note('Claude Desktop took over claude:// links again, so the launcher took them back.');
+      }
+    }
+  } catch (e) {
+    if (Date.now() - lastHandlerNote > 10 * 60 * 1000) {
+      lastHandlerNote = Date.now();
+      note(`Could not keep the sign-in link handler: ${e.message}`);
+    }
+  } finally {
+    handlerBusy = false;
+  }
+}
+
 // Without the launcher as handler, the system hands every claude:// link to the Default Claude, which refuses a sign-in
 // it did not start. The link is on the command line of the Claude process the system just started, so pass it to the
 // account that did start it.
@@ -562,6 +599,7 @@ const actions = {
     if (!p.isDefault) armWatch(WATCH_AFTER_OPEN_MS);
     syncLinuxEntry(p);
     await claude.launchProfile(p);
+    for (const ms of [3000, 8000, 15000]) setTimeout(() => maintainLinkHandler(true), ms);
     note(`Opened ${p.name}`);
     setTimeout(refresh, 2500);
     setTimeout(refresh, 7000);
@@ -650,6 +688,7 @@ const actions = {
     } else if (key === 'linkHandler') {
       if (!caps.linkHandler) throw new Error('This system has no xdg-mime, so the launcher cannot take over claude:// links.');
       const stateFile = path.join(app.getPath('userData'), 'previous-link-handler');
+      store.setSetting('linkHandler', !!value);
       if (value) {
         await linkHandler.enable({ exec: selfCommand(), icon: launcherIconPath(), stateFile });
         note('The launcher now receives claude:// sign-in links and passes each to the account that started it.');
@@ -984,6 +1023,7 @@ if (!app.requestSingleInstanceLock()) {
     if (snap.profiles.some((p) => !p.isDefault && snap.running.has(p.id))) armWatch(WATCH_AFTER_OPEN_MS);
 
     setInterval(() => {
+      maintainLinkHandler();
       noticeSignInStarts();
       trackFocus();
       autoTrim();

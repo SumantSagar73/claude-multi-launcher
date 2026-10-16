@@ -211,12 +211,12 @@ function readProc(procRoot, pid) {
   };
 }
 
-// /proc/<pid>/cmdline is NUL-separated. Chromium's child processes (renderer, GPU, zygote) rewrite their own title, which
-// leaves the whole command as ONE space-separated string, so that form is split on spaces too. (Paths with spaces
-// break in that form, but children are only checked for their --type= flag.)
+// /proc/<pid>/cmdline is NUL-separated. Chromium processes can rewrite their own title, which leaves the whole command
+// as ONE space-separated string. That form is split only where a new option (or a claude:// link) starts, so a data folder
+// with spaces in its name, like ".../Claude Multi Launcher/profiles/x", stays in one piece.
 function splitCmdline(raw) {
   const parts = raw.split('\0').filter((a, i, all) => a !== '' || i < all.length - 1);
-  return parts.length === 1 && / --?\w/.test(parts[0]) ? parts[0].split(' ').filter(Boolean) : parts;
+  return parts.length === 1 && / --?\w/.test(parts[0]) ? parts[0].split(/ (?=--?\w|claude:\/\/)/).filter(Boolean) : parts;
 }
 
 // Proportional set size counts memory shared between Claude's own processes once instead of once per process, which is
