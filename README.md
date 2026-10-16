@@ -139,7 +139,7 @@ The idea is the same: each account is a separate Claude Desktop started with its
 | --- | --- | --- |
 | Finding Claude | Store package lookup | `claude-desktop` on `PATH`, then the `.deb` install locations (or `CML_CLAUDE_PATH`) |
 | Sign-in links | Watches new processes for the `claude://` link | The same, by polling `/proc`. Better: turn on **Settings > Catch sign-in links**, which makes the launcher the system's handler for `claude://` links (undone by switching it off), so no link is missed. |
-| Telling windows apart | Own taskbar button, coloured icon, `[Name]` title | Each account's windows get their own window class (`--class`). The shortcut button creates an app-menu entry with that class and a coloured icon, which docks and task bars group by. Titles are not changed. |
+| Telling windows apart | Own taskbar button, coloured icon, `[Name]` title | Each extra account gets its own window class and an app-menu entry `Claude (Name)` with a coloured icon (made when you open or edit the account), which the dock and task switcher group by. On Wayland the account is started through XWayland, because Wayland fixes a window's identity inside the app; set `CML_NATIVE_WAYLAND=1` to keep native Wayland (then all accounts look alike). Titles are not changed. |
 | Shortcuts | Start Menu `.lnk` | A `.desktop` entry in `~/.local/share/applications` |
 | Start with the system | Login item | `~/.config/autostart` entry |
 | Free memory from idle accounts | Yes | **Not available.** There is no safe equivalent of trimming a working set without special privileges. |

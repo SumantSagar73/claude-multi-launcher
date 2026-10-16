@@ -146,3 +146,11 @@ test('start time is read from /proc stat, even when the command name contains sp
   const [inst] = await linux.scanInstances({ procRoot: root, claude });
   assert.equal(inst.startedAt, 1000 * 1000 + 5000);
 });
+
+test('account windows go through XWayland on a Wayland session so they can have their own window class', () => {
+  assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'wayland', DISPLAY: ':0' }), ['--ozone-platform=x11']);
+  assert.deepEqual(linux.windowSystemArgs({ WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' }), ['--ozone-platform=x11']);
+  assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'x11', DISPLAY: ':0' }), []);
+  assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'wayland' }), []); // no XWayland to go through
+  assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'wayland', DISPLAY: ':0', CML_NATIVE_WAYLAND: '1' }), []);
+});

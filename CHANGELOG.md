@@ -17,6 +17,10 @@ All notable changes to this project are recorded here. The format follows
 - Linux: **Catch sign-in links** setting. It makes the launcher the system handler for `claude://` links, routes each
   sign-in to the account that began it, hands other links to the Default Claude, and puts the previous handler back
   when switched off.
+- Linux: each extra account gets its own window class and an app-menu entry `Claude (Name)` with a coloured icon, written
+  when the account is opened or edited and removed with it, so the dock and task switcher can tell accounts apart. On
+  Wayland, accounts are started through XWayland (`--ozone-platform=x11`) so the class is honoured;
+  `CML_NATIVE_WAYLAND=1` opts out.
 - Linux: when nothing says which account began a sign-in, the account that started most recently is used (also after
   the launcher itself was restarted).
 - The installed `claude-multi-launcher` command now starts in the background instead of holding the terminal.

@@ -295,11 +295,19 @@ async function launchProfile(profile, url) {
     if (problem) throw new Error(problem);
   }
   const args = [];
-  if (!profile.isDefault) args.push(`--user-data-dir=${profile.dataDir}`, `--class=${wmClassFor(profile)}`);
+  if (!profile.isDefault) args.push(`--user-data-dir=${profile.dataDir}`, `--class=${wmClassFor(profile)}`, ...windowSystemArgs());
   if (url) args.push(url);
   const child = spawn(exe, args, { detached: true, stdio: 'ignore' });
   child.on('error', () => {});
   child.unref();
+}
+
+// On Wayland the app id of a window is fixed by the program itself, so every Claude window would share one identity and
+// one dock icon, and --class would do nothing. Through XWayland the window class is honoured, which lets each account have
+// its own. Needs XWayland (DISPLAY is set); CML_NATIVE_WAYLAND=1 keeps accounts on native Wayland instead.
+function windowSystemArgs(env = process.env) {
+  const wayland = (env.XDG_SESSION_TYPE === 'wayland' || !!env.WAYLAND_DISPLAY) && !!env.DISPLAY;
+  return wayland && !env.CML_NATIVE_WAYLAND ? ['--ozone-platform=x11'] : [];
 }
 
 const wmClassFor = (profile) => `claude-multi-${String(profile.id).replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase()}`;
@@ -351,6 +359,7 @@ module.exports = {
   snapDataDirProblem,
   isClaudeProcess,
   wmClassFor,
+  windowSystemArgs,
   listPids,
   readProc,
   splitCmdline,

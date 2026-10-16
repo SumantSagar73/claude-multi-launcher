@@ -325,7 +325,24 @@ function launcherIconPath() {
   return file;
 }
 
-async function makeLinuxAccountEntry(p) {
+// Linux: every extra account gets an app-menu entry with its own coloured icon and the window class its windows carry, so
+// the dock and the task switcher can tell accounts apart. Written when an account is opened or edited, removed with it.
+function syncLinuxEntry(p) {
+  if (!IS_LINUX || p.isDefault) return;
+  try {
+    makeLinuxAccountEntry(p);
+  } catch (e) {
+    note(`Could not update the app-menu entry for ${p.name}: ${e.message}`);
+  }
+}
+
+function removeLinuxEntry(p) {
+  if (!IS_LINUX || p.isDefault) return;
+  fs.rmSync(desktop.accountEntryFile(p), { force: true });
+  fs.rmSync(path.join(app.getPath('userData'), 'icons', `${p.id}.png`), { force: true });
+}
+
+function makeLinuxAccountEntry(p) {
   const iconDir = path.join(app.getPath('userData'), 'icons');
   fs.mkdirSync(iconDir, { recursive: true });
   const iconPath = path.join(iconDir, `${p.id}.png`);
@@ -543,6 +560,7 @@ const actions = {
     if (!p) throw new Error('Account not found.');
     lastLaunched.set(id, Date.now());
     if (!p.isDefault) armWatch(WATCH_AFTER_OPEN_MS);
+    syncLinuxEntry(p);
     await claude.launchProfile(p);
     note(`Opened ${p.name}`);
     setTimeout(refresh, 2500);
@@ -587,6 +605,7 @@ const actions = {
 
   async update({ id, name, color, email }) {
     store.update(id, { name, color, email });
+    syncLinuxEntry(store.get(id));
     await refresh();
   },
 
@@ -604,6 +623,7 @@ const actions = {
     });
     if (response === 2) return;
     store.remove(id, { deleteData: response === 0 });
+    removeLinuxEntry(p);
     note(`Removed ${p.name}`);
     await refresh();
   },
