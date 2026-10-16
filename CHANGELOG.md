@@ -3,6 +3,24 @@
 All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Linux support (Ubuntu 22.04+ / Debian 12+, with the `claude-desktop` package): list, open, focus and quit accounts,
+  sign-in routing by watching `/proc`, per-account app-menu entries (`.desktop`) with their own window class and icon,
+  start at login, tray menu, hotkeys on X11, per-account memory measured as PSS.
+- Tiling and idle-close on X11 sessions with `xdotool`; switched off on Wayland.
+- AppImage, `.deb` and `.tar.gz` builds (`npm run release` on Linux), and `npm run package:linux` /
+  `npm run install-app:linux` for a per-user install without sudo.
+- `CML_CLAUDE_PATH` and `CML_CLAUDE_DATA` to point the launcher at an unusual Claude Desktop install.
+
+### Changed
+- Settings and buttons that a system cannot support are hidden instead of failing (for example "Free memory" on Linux).
+- Idle-close now keeps track of which account is in front even when "Free memory" is turned off.
+
+### Known limitations
+- Linux: freeing memory from idle accounts is not available, and window titles are not prefixed with the account name.
+
 ## [1.0.0] - 2026-09-25
 
 First public release.
@@ -24,4 +42,5 @@ First public release.
 - Windows 10/11 x64 and the Microsoft Store version of Claude Desktop only.
 - Builds are unsigned, so Windows SmartScreen may warn on first run.
 
+[Unreleased]: https://github.com/SumantSagar73/claude-multi-launcher/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/SumantSagar73/claude-multi-launcher/releases/tag/v1.0.0

@@ -54,6 +54,8 @@ body {
   background: var(--bg);
   z-index: 2;
 }
+/* Other systems keep their own window frame, so the title bar is just a header and needs no room for caption buttons. */
+html:not([data-platform="win32"]) .titlebar { padding-right: var(--s4); -webkit-app-region: no-drag; }
 .brand { font-size: var(--t-sm); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .titlebar-actions { display: flex; align-items: center; gap: var(--s1); -webkit-app-region: no-drag; }
 

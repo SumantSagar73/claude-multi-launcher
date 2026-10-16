@@ -1,7 +1,7 @@
 {
   "name": "claude-multi-launcher",
   "version": "1.0.0",
-  "description": "Launcher for running several Claude Desktop accounts side by side on Windows",
+  "description": "Launcher for running several Claude Desktop accounts side by side on Windows and Linux",
   "author": "Sumant Sagar",
   "license": "MIT",
   "homepage": "https://github.com/SumantSagar73/claude-multi-launcher#readme",
@@ -16,6 +16,7 @@
     "claude",
     "claude-desktop",
     "windows",
+    "linux",
     "multi-account",
     "launcher",
     "electron"
@@ -26,9 +27,12 @@
     "start": "electron .",
     "test": "node --test test/*.test.js",
     "package": "node scripts/make-icon.js && electron-packager . \"Claude Multi Launcher\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --ignore=\"^/(dist|release|stage|test|scripts|build|spike-profile-a|.claude)($|/)\" --ignore=\"^/README.md$\"",
+    "package:linux": "node scripts/make-icon.js && electron-packager . \"Claude Multi Launcher\" --platform=linux --arch=x64 --out=dist --overwrite --ignore=\"^/(dist|release|stage|test|scripts|build|spike-profile-a|.claude)($|/)\" --ignore=\"^/README.md$\"",
     "release": "node scripts/release.js",
     "install-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1",
-    "uninstall-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall.ps1"
+    "uninstall-app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall.ps1",
+    "install-app:linux": "bash scripts/install.sh",
+    "uninstall-app:linux": "bash scripts/uninstall.sh"
   },
   "build": {
     "appId": "com.multilauncher.claude",
@@ -65,6 +69,32 @@
       "shortcutName": "Claude Multi Launcher",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "synopsis": "Several Claude Desktop accounts side by side",
+      "artifactName": "Claude-Multi-Launcher-${version}-linux-${arch}.${ext}",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     }
   },
   "devDependencies": {

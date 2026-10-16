@@ -2,6 +2,7 @@
 
 const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell, clipboard, screen, globalShortcut } = require('electron');
 const os = require('node:os');
+const { execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -16,10 +17,15 @@ const { pngsToIco } = require('./ico');
 const { createShortcut } = require('./shortcut');
 const { findLeftovers, removeLeftovers } = require('./handlercheck');
 const { computeGrid } = require('./layout');
+const desktop = require('./desktopentry');
+
+const IS_WIN = process.platform === 'win32';
+const IS_LINUX = process.platform === 'linux';
 
 // Keep the same data folder name the earlier prototype used so existing profiles.json is picked up.
 // CML_USER_DATA and CML_BACKGROUND_MS exist only so tests can run against a scratch folder and a short timer.
 app.setPath('userData', process.env.CML_USER_DATA || path.join(app.getPath('appData'), 'Claude Multi Launcher'));
+if (IS_LINUX) app.setDesktopName('claude-multi-launcher.desktop');
 
 // Anything that goes wrong outside a button press still ends up in launcher.log instead of vanishing.
 function logToFile(text) {
@@ -55,6 +61,7 @@ let quitting = false;
 let snap = { profiles: [], running: new Map(), at: 0 };
 let claudeInfo = null;
 let claudeError = null;
+let caps = { trim: false, tile: false, focus: false, style: false, reason: '' }; // what this system lets the launcher do
 let refreshTimer = null;
 let trayKey = '';
 let watchUntil = 0;
@@ -166,13 +173,24 @@ function buildState() {
     settings: {
       autoFreeMemory: store.settings.autoFreeMemory !== false,
       autoCloseHours: store.settings.autoCloseHours || 0,
-      startWithWindows: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
-      canAutostart: app.isPackaged,
-      canShortcuts: app.isPackaged,
+      startWithWindows: autostartOn(),
+      canAutostart: IS_LINUX || app.isPackaged,
+      canShortcuts: IS_LINUX || app.isPackaged,
+    },
+    platform: {
+      os: process.platform,
+      loginLabel: IS_WIN ? 'Start with Windows' : 'Start at login',
+      shortcutLabel: IS_WIN ? 'Start Menu shortcut' : 'app launcher entry',
+      caps,
     },
     watch: { active: watcher.running, secondsLeft: Math.max(0, Math.round((watchUntil - Date.now()) / 1000)) },
     activity: activity.map((a) => ({ t: a.t, msg: a.msg })),
   };
+}
+
+function autostartOn() {
+  if (IS_LINUX) return desktop.isAutostartOn();
+  return app.isPackaged ? app.getLoginItemSettings().openAtLogin : false;
 }
 
 function push() {
@@ -211,6 +229,7 @@ function profileOfPid(pid) {
 }
 
 function trimProfile(id) {
+  if (!caps.trim) throw new Error(`Freeing memory is not available here${caps.reason ? ` (${caps.reason})` : ' (Windows only)'}.`);
   const p = store.get(id);
   if (!p || p.isDefault) throw new Error('The launcher does not trim your Default Claude.');
   const inst = snap.running.get(id);
@@ -222,17 +241,22 @@ function trimProfile(id) {
   helper.requestTrim(trimNonce, inst.pids);
 }
 
+// Remember when each account's window was last in front. Idle-close depends on this even when freeing memory is off.
+function trackFocus() {
+  const now = Date.now();
+  for (const p of nonDefaultRunning()) {
+    if (snap.running.get(p.id).pids.includes(fgPid)) lastFocused.set(p.id, now);
+    else if (!lastFocused.has(p.id)) lastFocused.set(p.id, now);
+  }
+}
+
 // Accounts left in the background give their idle memory back; Windows pages it in again when the account is used.
 function autoTrim() {
-  if (store.settings.autoFreeMemory === false) return;
+  if (!caps.trim || store.settings.autoFreeMemory === false) return;
   const now = Date.now();
   for (const p of nonDefaultRunning()) {
     const inst = snap.running.get(p.id);
-    if (inst.pids.includes(fgPid)) {
-      lastFocused.set(p.id, now);
-      continue;
-    }
-    if (!lastFocused.has(p.id)) lastFocused.set(p.id, now);
+    if (inst.pids.includes(fgPid)) continue;
     if (now - lastFocused.get(p.id) > BACKGROUND_AFTER_MS && now - (lastTrim.get(p.id) || 0) > TRIM_EVERY_MS) {
       trimProfile(p.id);
     }
@@ -243,7 +267,8 @@ function autoTrim() {
 // trimmed. Off by default. Never applied to Default.
 function autoCloseIdle() {
   const hours = store.settings.autoCloseHours || 0;
-  if (!hours) return;
+  // Without knowing which window is in front, every account would look idle from the moment it opened.
+  if (!hours || !caps.focus) return;
   const cutoff = hours * 60 * 60 * 1000;
   const now = Date.now();
   for (const p of nonDefaultRunning()) {
@@ -261,6 +286,7 @@ function autoCloseIdle() {
 // ---------- tiling and per-account shortcuts ----------
 
 function tileRunningWindows() {
+  if (!caps.tile) throw new Error(`Tiling is not available here${caps.reason ? ` (${caps.reason})` : ''}.`);
   const targets = nonDefaultRunning();
   if (targets.length === 0) throw new Error('No accounts are open to tile.');
   const display = win ? screen.getDisplayMatching(win.getBounds()) : screen.getPrimaryDisplay();
@@ -273,12 +299,51 @@ function tileRunningWindows() {
   );
 }
 
+// How to start this launcher again from a .desktop file: the AppImage itself, the installed binary, or electron plus the
+// source folder when running from a checkout.
+function selfCommand() {
+  const base = process.env.APPIMAGE ? [process.env.APPIMAGE] : app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()];
+  // A copy installed without the setuid sandbox helper has to be started with --no-sandbox; keep that on every restart.
+  return app.commandLine.hasSwitch('no-sandbox') ? [base[0], '--no-sandbox', ...base.slice(1)] : base;
+}
+
+function launcherIconPath() {
+  const iconDir = path.join(app.getPath('userData'), 'icons');
+  fs.mkdirSync(iconDir, { recursive: true });
+  const file = path.join(iconDir, 'launcher.png');
+  fs.writeFileSync(file, makeIconPng(256));
+  return file;
+}
+
+async function makeLinuxAccountEntry(p) {
+  const iconDir = path.join(app.getPath('userData'), 'icons');
+  fs.mkdirSync(iconDir, { recursive: true });
+  const iconPath = path.join(iconDir, `${p.id}.png`);
+  fs.writeFileSync(iconPath, makeAccountIconPng(256, p.color));
+  const name = `Claude (${p.name})`;
+  desktop.writeEntry(
+    desktop.accountEntryFile(p),
+    desktop.buildDesktopEntry({
+      name,
+      comment: `Open ${p.name} in Claude Multi Launcher`,
+      exec: [...selfCommand(), `--open=${p.name}`],
+      icon: iconPath,
+      // Windows of a non-default account get this class (see claude-linux.js), so the dock groups them under this entry.
+      wmClass: p.isDefault ? null : claude.wmClassFor(p),
+    }),
+  );
+  // Menus pick the file up on their own; this just makes it immediate where the tool exists.
+  execFile('update-desktop-database', [desktop.applicationsDir()], () => {});
+  return name;
+}
+
 async function makeAccountShortcut(id) {
+  const p = store.get(id);
+  if (!p) throw new Error('Account not found.');
+  if (IS_LINUX) return makeLinuxAccountEntry(p);
   if (!app.isPackaged) {
     throw new Error('Shortcuts need the installed app: run "npm run package" then "npm run install-app", then use the installed copy.');
   }
-  const p = store.get(id);
-  if (!p) throw new Error('Account not found.');
 
   const iconDir = path.join(app.getPath('userData'), 'icons');
   fs.mkdirSync(iconDir, { recursive: true });
@@ -342,7 +407,8 @@ function readTail(file, bytes = 16384) {
 }
 
 function logPathFor(p) {
-  return p.isDefault
+  // The Store version of Claude on Windows keeps the Default account's log outside its data folder.
+  return p.isDefault && IS_WIN
     ? path.join(process.env.LOCALAPPDATA || '', 'Claude', 'logs', 'main.log')
     : path.join(p.dataDir, 'logs', 'main.log');
 }
@@ -525,8 +591,12 @@ const actions = {
       store.setSetting('autoCloseHours', hours);
       lastAutoCloseWarn.clear();
     } else if (key === 'startWithWindows') {
-      if (!app.isPackaged) throw new Error('Start with Windows is available in the installed app (see the README).');
-      app.setLoginItemSettings({ openAtLogin: !!value, args: ['--hidden'] });
+      if (IS_LINUX) {
+        desktop.setAutostart(!!value, { exec: [...selfCommand(), '--hidden'], icon: launcherIconPath() });
+      } else {
+        if (!app.isPackaged) throw new Error('Start with Windows is available in the installed app (see the README).');
+        app.setLoginItemSettings({ openAtLogin: !!value, args: ['--hidden'] });
+      }
     } else {
       throw new Error('Unknown setting.');
     }
@@ -539,7 +609,11 @@ const actions = {
 
   async shortcut(id) {
     const name = await makeAccountShortcut(id);
-    note(`Created a Start Menu shortcut for ${store.get(id).name}. Search "${name}" in the Start menu, or run it with --open="${store.get(id).name}".`);
+    note(
+      IS_WIN
+        ? `Created a Start Menu shortcut for ${store.get(id).name}. Search "${name}" in the Start menu, or run it with --open="${store.get(id).name}".`
+        : `Added "${name}" to your app launcher. Find it in the applications menu, or run the launcher with --open="${store.get(id).name}".`,
+    );
   },
 
   async export() {
@@ -592,13 +666,23 @@ const actions = {
     return {
       checks: [
         { label: 'Claude Desktop found', ok: !!claudeInfo, detail: claudeInfo ? `version ${claudeInfo.version}` : claudeError || 'not found' },
-        {
-          label: 'Sign-in link handling is clean',
-          ok: leftovers.length === 0,
-          detail: leftovers.length === 0 ? 'no leftover registration' : 'a leftover registration could make Windows show an "Open with" prompt for Claude links',
-          fixable: leftovers.length > 0,
-        },
-        { label: 'Window styling helper', ok: nonDefaultRunning().length === 0 || helper.running, detail: helper.running ? 'running' : 'stopped (fine when no account is open)' },
+        ...(IS_WIN
+          ? [
+              {
+                label: 'Sign-in link handling is clean',
+                ok: leftovers.length === 0,
+                detail: leftovers.length === 0 ? 'no leftover registration' : 'a leftover registration could make Windows show an "Open with" prompt for Claude links',
+                fixable: leftovers.length > 0,
+              },
+              { label: 'Window styling helper', ok: nonDefaultRunning().length === 0 || helper.running, detail: helper.running ? 'running' : 'stopped (fine when no account is open)' },
+            ]
+          : [
+              {
+                label: 'Window tools',
+                ok: true, // informational: missing tools only switch off tiling and idle-close
+                detail: caps.focus ? `xdotool found (${claude.sessionType()}): tiling and idle-close are available` : `tiling and idle-close are off: ${caps.reason}`,
+              },
+            ]),
         { label: 'Sign-in watcher', ok: true, detail: watcher.running ? `watching, ${Math.max(0, Math.round((watchUntil - Date.now()) / 1000))}s left` : 'idle (fine when no sign-in is in progress)' },
       ],
     };
@@ -619,7 +703,7 @@ const actions = {
     const logTail = readTail(path.join(app.getPath('userData'), 'launcher.log'), 6000).split(/\r?\n/).slice(-40).join('\n');
     const lines = [
       `Claude Multi Launcher ${app.getVersion()}${app.isPackaged ? ' (installed build)' : ' (from source)'}`,
-      `Electron ${process.versions.electron}, Windows ${os.release()}, Claude Desktop ${state.claude ? state.claude.version : 'not found'}`,
+      `Electron ${process.versions.electron}, ${IS_WIN ? 'Windows' : process.platform} ${os.release()}${IS_WIN ? '' : `, ${claude.sessionType()} session`}, Claude Desktop ${state.claude ? state.claude.version : 'not found'}`,
       state.claudeError ? `Claude problem: ${state.claudeError}` : null,
       '',
       'Accounts (no emails, no paths):',
@@ -628,7 +712,7 @@ const actions = {
       ),
       '',
       `Sign-in watcher: ${state.watch.active ? `on, ${state.watch.secondsLeft}s left` : 'idle'}`,
-      `Window helper: ${helper.running ? 'running' : 'stopped'}`,
+      `Window helper: ${helper.running ? 'running' : 'stopped'}${IS_WIN ? '' : ` (tile ${caps.tile ? 'on' : 'off'}, focus tracking ${caps.focus ? 'on' : 'off'})`}`,
       `Free memory from idle accounts: ${state.settings.autoFreeMemory ? 'on' : 'off'}`,
       '',
       'Recent log:',
@@ -668,8 +752,8 @@ function createWindow() {
     backgroundColor: '#141210',
     title: 'Multi Launcher',
     icon: nativeImage.createFromBuffer(makeIconPng(64)),
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#141210', symbolColor: '#ece6dd', height: 40 },
+    // Windows draws its own caption buttons over our title bar; other systems keep their normal window frame.
+    ...(IS_WIN ? { titleBarStyle: 'hidden', titleBarOverlay: { color: '#141210', symbolColor: '#ece6dd', height: 40 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -750,9 +834,14 @@ function updateHotkeys() {
   hotkeyKey = key;
   globalShortcut.unregisterAll();
   ids.forEach((id, i) => {
-    globalShortcut.register(`CommandOrControl+Alt+${i}`, () => {
-      actions.open(id).catch((e) => note(`Hotkey could not open the account: ${e.message}`));
-    });
+    // Wayland sessions may refuse global shortcuts; a slot that cannot be taken is simply skipped.
+    try {
+      globalShortcut.register(`CommandOrControl+Alt+${i}`, () => {
+        actions.open(id).catch((e) => note(`Hotkey could not open the account: ${e.message}`));
+      });
+    } catch {
+      // not available on this system
+    }
   });
 }
 
@@ -775,7 +864,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    store = new ProfileStore(app.getPath('userData'), path.join(app.getPath('appData'), 'Claude'));
+    // CML_CLAUDE_DATA: where the Default Claude keeps its data, if it is not in the usual place.
+    store = new ProfileStore(app.getPath('userData'), process.env.CML_CLAUDE_DATA || path.join(app.getPath('appData'), 'Claude'));
     watcher = new LinkWatcher(app.getPath('userData'));
     watcher.on('process', onClaudeProcess);
     watcher.on('error-text', (t) => note(`Sign-in watcher problem: ${String(t).split(/\r?\n/)[0].slice(0, 160)}`));
@@ -793,6 +883,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     helper.on('error-text', (t) => note(`Window helper problem: ${String(t).split(/\r?\n/)[0].slice(0, 160)}`));
     helper.on('tiled', ({ moved }) => note(`Tiled ${moved} account window${moved === 1 ? '' : 's'}.`));
+    caps = await WindowHelper.probe();
     createTray();
     // Populate claudeInfo etc. before the window (and so the renderer's first getState()/health() calls) exists,
     // so the UI never has a moment where it reports Claude "not found" purely because the check hadn't run yet.
@@ -807,6 +898,7 @@ if (!app.requestSingleInstanceLock()) {
 
     setInterval(() => {
       noticeSignInStarts();
+      trackFocus();
       autoTrim();
       autoCloseIdle();
       const was = watcher.running;

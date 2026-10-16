@@ -65,4 +65,4 @@ class LinkWatcher extends EventEmitter {
   }
 }
 
-module.exports = { LinkWatcher };
+module.exports = { LinkWatcher: process.platform === 'win32' ? LinkWatcher : require('./linkwatch-linux').LinkWatcher };

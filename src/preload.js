@@ -3,6 +3,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('launcher', {
+  platform: process.platform,
   getState: () => ipcRenderer.invoke('state:get'),
   onState: (cb) => {
     const handler = (_e, state) => cb(state);

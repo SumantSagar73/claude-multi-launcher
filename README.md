@@ -1,12 +1,13 @@
 # Claude Multi Launcher
 
-**Run several Claude Desktop accounts side by side on Windows.** Each account gets its own isolated Claude window with
+**Run several Claude Desktop accounts side by side on Windows and Linux.** Each account gets its own isolated Claude window with
 its own login, so personal, work and client accounts stay signed in together instead of taking turns.
 
 [![CI](https://github.com/SumantSagar73/claude-multi-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/SumantSagar73/claude-multi-launcher/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/SumantSagar73/claude-multi-launcher)](https://github.com/SumantSagar73/claude-multi-launcher/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform: Windows 10/11](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4)
+![Platform: Ubuntu / Debian](https://img.shields.io/badge/platform-Ubuntu%20%2F%20Debian-e95420)
 
 <p align="center">
   <img src="docs/screenshots/main.png" alt="The launcher's account list" width="380">
@@ -16,7 +17,7 @@ its own login, so personal, work and client accounts stay signed in together ins
 
 ## Why
 
-Claude Desktop for Windows signs in to one account at a time. Switching means signing out, signing in, and losing your
+Claude Desktop signs in to one account at a time. Switching means signing out, signing in, and losing your
 place. This launcher starts each account in its own copy of Claude with a separate data folder, and takes care of the
 awkward parts: getting a browser sign-in back to the right window, telling the windows apart, and keeping memory in
 check.
@@ -40,9 +41,18 @@ check.
 
 ## Requirements
 
+**Windows**
 - Windows 10 or 11, 64-bit.
 - **Claude Desktop installed from the Microsoft Store** (the app named "Claude"). The launcher finds it automatically
   and follows its updates.
+
+**Linux** (beta)
+- Ubuntu 22.04 or later, or Debian 12 or later, x86_64, with Claude Desktop installed from Anthropic's apt repository
+  (`sudo apt install claude-desktop`, see [Claude Desktop on Linux](https://code.claude.com/docs/en/desktop-linux)).
+  Other distributions work if `claude-desktop` is on your `PATH`; if it lives somewhere unusual, set
+  `CML_CLAUDE_PATH` to the executable.
+- For tiling and idle-close: an X11 session and `xdotool` (`sudo apt install xdotool`). Neither works on Wayland, and
+  the launcher turns them off there instead of half working. See [Linux differences](#linux-differences).
 
 ## Install
 
@@ -63,6 +73,27 @@ Get-FileHash .\Claude-Multi-Launcher-<version>.exe -Algorithm SHA256
 
 Uninstall from **Settings > Apps**. Your accounts are kept (in `%APPDATA%\Claude Multi Launcher`) so a reinstall picks
 them up again, and your normal Claude data is never touched.
+
+### Install on Linux
+
+Pick one from the [**Releases**](https://github.com/SumantSagar73/claude-multi-launcher/releases/latest) page:
+
+- `Claude-Multi-Launcher-<version>-linux-x64.AppImage`: make it executable (`chmod +x`) and run it.
+- `Claude-Multi-Launcher-<version>-linux-x64.deb`: `sudo apt install ./Claude-Multi-Launcher-<version>-linux-x64.deb`.
+- `Claude-Multi-Launcher-<version>-linux-x64.tar.gz`: unpack anywhere and run `Claude Multi Launcher`. If it will not
+  start and prints a sandbox error, start it with `--no-sandbox` (see [Troubleshooting](#troubleshooting)).
+
+Or build and install for your user only, with no sudo (see [Build from source](#build-from-source)):
+
+```bash
+npm install
+npm run package:linux
+npm run install-app:linux      # adds ~/.local/bin/claude-multi-launcher and an app-menu entry
+```
+
+The launcher lives in the system tray (on GNOME it needs the AppIndicator extension). Your accounts are kept in
+`~/.config/Claude Multi Launcher`, and your normal Claude data in `~/.config/Claude` is never touched.
+`npm run uninstall-app:linux` removes what the install script added.
 
 ## Quick start
 
@@ -95,9 +126,26 @@ settings are changed. Details are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 
 The code is small and readable. See [SECURITY.md](SECURITY.md) to report a problem.
 
+## Linux differences
+
+The idea is the same: each account is a separate Claude Desktop started with its own `--user-data-dir`. What differs:
+
+| | Windows | Linux |
+| --- | --- | --- |
+| Finding Claude | Store package lookup | `claude-desktop` on `PATH`, then the `.deb` install locations (or `CML_CLAUDE_PATH`) |
+| Sign-in links | Watches new processes for the `claude://` link | The same, by polling `/proc` (no extra tools or privileges needed) |
+| Telling windows apart | Own taskbar button, coloured icon, `[Name]` title | Each account's windows get their own window class (`--class`). The shortcut button creates an app-menu entry with that class and a coloured icon, which docks and task bars group by. Titles are not changed. |
+| Shortcuts | Start Menu `.lnk` | A `.desktop` entry in `~/.local/share/applications` |
+| Start with the system | Login item | `~/.config/autostart` entry |
+| Free memory from idle accounts | Yes | **Not available.** There is no safe equivalent of trimming a working set without special privileges. |
+| Tile windows, close idle accounts | Yes | X11 with `xdotool` only. They are switched off on Wayland, which does not let one program move or watch another's windows. |
+| Hotkeys `Ctrl+Alt+0..9` | Yes | X11. Wayland compositors may refuse global shortcuts; the tray menu still works. |
+
 ## Limitations
 
-- Windows only, and the Microsoft Store version of Claude Desktop only.
+- Windows (Microsoft Store version of Claude Desktop) and Debian-based Linux (the `claude-desktop` package). The Linux
+  support is new and has so far been exercised against a stand-in for Claude Desktop, not across many distributions and
+  desktops. Please open an issue with **Settings > Copy diagnostics** if something is off.
 - Each account that uses Cowork downloads its own VM image (about 8 GB). Sharing one between accounts is not
   attempted because two running VMs cannot safely share one writable disk.
 - Freed memory is moved out of RAM, not capped. The first click after a long idle can be a little slower.
@@ -111,7 +159,9 @@ The code is small and readable. See [SECURITY.md](SECURITY.md) to report a probl
 | --- | --- |
 | A sign-in did not complete | Open **Settings > Sign-in links** and press *Watch for 10 minutes*, then sign in again. Check *Activity* for where the link went. |
 | Windows asks "How do you want to open this?" for Claude links | **Settings > Health check** may show a leftover registration with a **Fix** button. |
-| The launcher says Claude is not found | Install Claude Desktop from the Microsoft Store, then reopen the launcher. |
+| The launcher says Claude is not found | Windows: install Claude Desktop from the Microsoft Store. Linux: install `claude-desktop` (see Requirements), or set `CML_CLAUDE_PATH` to its executable. Then reopen the launcher. |
+| Linux: the launcher will not start and mentions the sandbox | The `.tar.gz` and a user-level install cannot give Electron's helper the setuid bit, and Ubuntu 24.04 blocks the alternative. Start it with `--no-sandbox` (the install script already does). The launcher only shows its own local window, never web pages. The `.deb` and AppImage do not need this. |
+| Linux: signing in to another account lands in the wrong window | Check *Activity* for where the link went. Claude Desktop must be started by the launcher (not by hand) for the launcher to know which account it is. If your `claude-desktop` is a wrapper script that drops extra arguments, it must pass `"$@"` through. |
 | Something else | **Settings > Copy diagnostics**, then paste the result into a new issue. |
 
 ## Build from source
@@ -124,8 +174,11 @@ cd claude-multi-launcher
 npm install
 npm start          # run from source
 npm test           # unit tests
-npm run release    # build the installer and portable zip into release/
+npm run release    # build the installer and portable zip into release/ (Windows) or AppImage, deb and tar.gz (Linux)
 ```
+
+On Linux `npm run package:linux` makes a runnable folder in `dist/`, and `npm run install-app:linux` installs it for your
+user.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to work on it safely, and [CHANGELOG.md](CHANGELOG.md) for what changed.
 

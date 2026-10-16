@@ -28,7 +28,9 @@ async function valueExists(key, name) {
   return (await reg(['query', key, '/v', name])).ok;
 }
 
+// The registry only exists on Windows; on other systems there is nothing to find or remove.
 async function findLeftovers() {
+  if (process.platform !== 'win32') return [];
   const [progid, caps, openWith, registered] = await Promise.all([
     keyExists(KEYS.progid),
     keyExists(KEYS.capabilities),
@@ -44,6 +46,7 @@ async function findLeftovers() {
 }
 
 async function removeLeftovers() {
+  if (process.platform !== 'win32') return;
   await Promise.all([
     reg(['delete', KEYS.openWith, '/v', PROGID, '/f']),
     reg(['delete', KEYS.registeredApps, '/v', APP_NAME, '/f']),
