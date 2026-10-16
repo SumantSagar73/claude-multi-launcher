@@ -127,6 +127,7 @@ async function quitInstance(pid) {
 
 // Linux-only helpers; the Windows build neither uses a window class nor needs the session type.
 const wmClassFor = (profile) => (linux ? linux.wmClassFor(profile) : null);
+const dataHints = () => (linux ? linux.dataHints() : {});
 const sessionType = () => (linux ? linux.sessionType() : 'windows');
 
-module.exports = { wmClassFor, sessionType, findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };
+module.exports = { wmClassFor, sessionType, dataHints, findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };

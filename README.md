@@ -51,6 +51,11 @@ check.
   (`sudo apt install claude-desktop`, see [Claude Desktop on Linux](https://code.claude.com/docs/en/desktop-linux)).
   Other distributions work if `claude-desktop` is on your `PATH`; if it lives somewhere unusual, set
   `CML_CLAUDE_PATH` to the executable.
+- Or the community snap **claude-ai-desktop** ("Desktop for Claude (Unofficial)", `sudo snap install claude-ai-desktop`), an
+  unofficial wrapper around claude.ai that is not made by Anthropic. The launcher finds it automatically when the
+  official package is not installed. Its sandbox only allows account folders under `~/snap/claude-ai-desktop/`, so new
+  accounts are stored in `~/snap/claude-ai-desktop/common/multi-launcher/`. It has no `claude://` sign-in step (logins
+  happen inside its window), so the sign-in watcher does nothing for it.
 - For tiling and idle-close: an X11 session and `xdotool` (`sudo apt install xdotool`). Neither works on Wayland, and
   the launcher turns them off there instead of half working. See [Linux differences](#linux-differences).
 

@@ -12,6 +12,8 @@ All notable changes to this project are recorded here. The format follows
 - Tiling and idle-close on X11 sessions with `xdotool`; switched off on Wayland.
 - AppImage, `.deb` and `.tar.gz` builds (`npm run release` on Linux), and `npm run package:linux` /
   `npm run install-app:linux` for a per-user install without sudo.
+- Support for the community Snap Store app `claude-ai-desktop`: found automatically, its processes matched by snap
+  folder, and accounts kept under `~/snap/claude-ai-desktop/common` because the snap sandbox blocks hidden folders.
 - `CML_CLAUDE_PATH` and `CML_CLAUDE_DATA` to point the launcher at an unusual Claude Desktop install.
 
 ### Changed

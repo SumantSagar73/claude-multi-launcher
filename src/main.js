@@ -865,7 +865,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     // CML_CLAUDE_DATA: where the Default Claude keeps its data, if it is not in the usual place.
-    store = new ProfileStore(app.getPath('userData'), process.env.CML_CLAUDE_DATA || path.join(app.getPath('appData'), 'Claude'));
+    // A snap install keeps its default account and allows new accounts only under ~/snap/<name>/ (see claude-linux.js).
+    const hints = claude.dataHints();
+    store = new ProfileStore(
+      app.getPath('userData'),
+      process.env.CML_CLAUDE_DATA || hints.defaultDataDir || path.join(app.getPath('appData'), 'Claude'),
+      hints.profilesRoot,
+    );
     watcher = new LinkWatcher(app.getPath('userData'));
     watcher.on('process', onClaudeProcess);
     watcher.on('error-text', (t) => note(`Sign-in watcher problem: ${String(t).split(/\r?\n/)[0].slice(0, 160)}`));

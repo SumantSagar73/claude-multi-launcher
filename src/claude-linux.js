@@ -15,6 +15,9 @@ const DEFAULT_CANDIDATES = [
   '/usr/lib/claude-desktop/claude-desktop',
 ];
 
+// Community builds from the Snap Store. Anthropic's own package is preferred when both are installed.
+const SNAP_APPS = ['claude-ai-desktop'];
+
 function run(cmd, args, timeout = 5000) {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout }, (err, stdout) => resolve(err ? '' : String(stdout)));
@@ -39,22 +42,72 @@ function onPath(name, pathVar = process.env.PATH || '') {
   return null;
 }
 
+// A snap's command is a symlink to /usr/bin/snap, so the real program is found by its snap name instead.
+// Returns the snap's name for /snap/bin/<name>, else null.
+function snapNameOf(exe) {
+  const m = /^\/snap\/bin\/([^/]+)$/.exec(exe);
+  return m ? m[1] : null;
+}
+
+const snapHome = () => process.env.HOME || os.homedir();
+
+function locateClaudeSync() {
+  const override = process.env.CML_CLAUDE_PATH;
+  if (override) return isExecutable(override) ? override : null;
+  const official = onPath('claude-desktop') || DEFAULT_CANDIDATES.find(isExecutable);
+  if (official) return official;
+  for (const name of SNAP_APPS) {
+    const f = `/snap/bin/${name}`;
+    if (isExecutable(f)) return f;
+  }
+  return null;
+}
+
+// Where a snap may keep an account's data folder. Its sandbox allows its own ~/snap/<name>/ folders and ordinary
+// (non-hidden) folders in the home directory, but not hidden ones such as ~/.config, where the launcher's accounts live
+// for other installs. ~/snap/<name>/common is kept across snap updates, so accounts go there.
+function snapPaths(name, home = snapHome()) {
+  return {
+    profilesRoot: path.join(home, 'snap', name, 'common', 'multi-launcher', 'profiles'),
+    defaultDataDir: path.join(home, 'snap', name, 'current', '.config', 'claude-desktop'),
+  };
+}
+
+// Synchronous hints for start-up, before the (asynchronous) full lookup has run: where this kind of install keeps its
+// default account and where new accounts must be stored.
+function dataHints() {
+  const exe = locateClaudeSync();
+  const name = exe && snapNameOf(exe);
+  return name ? snapPaths(name) : {};
+}
+
+// null if a snap can use this account folder, otherwise a sentence saying what is wrong.
+function snapDataDirProblem(dataDir, name, home = snapHome()) {
+  const rel = path.relative(home, dataDir);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null; // outside the home folder: the snap's own rules decide
+  if (rel.startsWith(path.join('snap', name) + path.sep)) return null;
+  if (rel.split(path.sep).some((part) => part.startsWith('.'))) {
+    return `${name} is a snap and cannot write to hidden folders such as ${dataDir}. Remove this account and add it again; new accounts are stored under ~/snap/${name}/common.`;
+  }
+  return null;
+}
+
 // Where is the Claude Desktop executable? CML_CLAUDE_PATH wins (also the escape hatch for unusual installs), then PATH,
-// then the places the .deb package is known to use, then whatever `dpkg -L claude-desktop` lists.
+// then the places the .deb package is known to use, then a community snap, then whatever `dpkg -L claude-desktop` lists.
 async function locateClaude() {
   const override = process.env.CML_CLAUDE_PATH;
   if (override) {
     if (!isExecutable(override)) throw new Error(`CML_CLAUDE_PATH is set to ${override}, but that is not an executable file.`);
     return override;
   }
-  const found = onPath('claude-desktop') || DEFAULT_CANDIDATES.find(isExecutable);
+  const found = locateClaudeSync();
   if (found) return found;
   const listed = (await run('dpkg', ['-L', 'claude-desktop']))
     .split('\n')
     .filter((l) => /\/claude-desktop$/.test(l) && isExecutable(l));
   if (listed[0]) return listed[0];
   throw new Error(
-    'Claude Desktop is not installed. Install it with "sudo apt install claude-desktop" (see the README), or set CML_CLAUDE_PATH to its executable.',
+    'Claude Desktop is not installed. Install it with "sudo apt install claude-desktop" (see the README) or from the Snap Store (claude-ai-desktop), or set CML_CLAUDE_PATH to its executable.',
   );
 }
 
@@ -86,10 +139,17 @@ let cache = { at: 0, value: null };
 async function findClaude() {
   if (cache.value && Date.now() - cache.at < 60_000) return cache.value;
   const exe = await locateClaude();
+  const snap = snapNameOf(exe);
+  if (snap) {
+    // Processes of a snap run from /snap/<name>/<revision>/, which changes on every update, so match on the folder.
+    const version = (await run('snap', ['list', snap])).split('\n')[1]?.split(/\s+/)[1] || 'unknown';
+    cache = { at: Date.now(), value: { exe, version, snap, reals: new Set(), names: new Set([snap, 'desktop-for-claude.bin']) } };
+    return cache.value;
+  }
   const version = (await run('dpkg-query', ['-W', '-f=${Version}', 'claude-desktop'])).trim() || 'unknown';
   const reals = realExecutables(exe);
   const names = new Set([path.basename(exe), ...[...reals].map((r) => path.basename(r))]);
-  cache = { at: Date.now(), value: { exe, version, reals, names } };
+  cache = { at: Date.now(), value: { exe, version, snap: null, reals, names } };
   return cache.value;
 }
 
@@ -165,9 +225,13 @@ function listPids(procRoot) {
 }
 
 function isClaudeProcess(p, claude) {
-  if (p.exe && claude.reals.has(p.exe)) return true;
+  // Fall back to the first word of the command line where the exe link cannot be read (a confined process).
+  const exe = p.exe || p.argv[0] || null;
+  if (!exe) return false;
+  if (claude.snap) return exe.startsWith(`/snap/${claude.snap}/`);
+  if (claude.reals.has(exe)) return true;
   // The exe link can point at a different file after an update replaced it while Claude was running.
-  return !!p.exe && claude.names.has(path.basename(p.exe));
+  return claude.names.has(path.basename(exe));
 }
 
 /**
@@ -210,7 +274,11 @@ async function scanInstances({ procRoot = '/proc', claude } = {}) {
 // --class gives every account its own window class, so a task bar can group an account's windows and the .desktop file
 // made by the shortcut button can match them.
 async function launchProfile(profile, url) {
-  const { exe } = await findClaude();
+  const { exe, snap } = await findClaude();
+  if (snap && !profile.isDefault) {
+    const problem = snapDataDirProblem(profile.dataDir, snap);
+    if (problem) throw new Error(problem);
+  }
   const args = [];
   if (!profile.isDefault) args.push(`--user-data-dir=${profile.dataDir}`, `--class=${wmClassFor(profile)}`);
   if (url) args.push(url);
@@ -262,6 +330,11 @@ module.exports = {
   launchProfile,
   quitInstance,
   parseUserDataDirArgs,
+  dataHints,
+  snapNameOf,
+  snapPaths,
+  snapDataDirProblem,
+  isClaudeProcess,
   wmClassFor,
   listPids,
   readProc,

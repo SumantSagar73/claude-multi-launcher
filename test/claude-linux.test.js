@@ -111,3 +111,27 @@ test('LinkWatcher reports a process that appears after it started, and ignores o
   assert.equal(seen[0].pid, 12);
   assert.match(seen[0].commandLine, /code=2/);
 });
+
+test('snap: names, data folders and process matching', () => {
+  assert.equal(linux.snapNameOf('/snap/bin/claude-ai-desktop'), 'claude-ai-desktop');
+  assert.equal(linux.snapNameOf('/usr/bin/claude-desktop'), null);
+
+  const p = linux.snapPaths('claude-ai-desktop', '/home/u');
+  assert.equal(p.profilesRoot, '/home/u/snap/claude-ai-desktop/common/multi-launcher/profiles');
+  assert.equal(p.defaultDataDir, '/home/u/snap/claude-ai-desktop/current/.config/claude-desktop');
+
+  const snap = { snap: 'claude-ai-desktop', reals: new Set(), names: new Set() };
+  assert.ok(linux.isClaudeProcess({ exe: '/snap/claude-ai-desktop/46/app/desktop-for-claude.bin', argv: [] }, snap));
+  assert.ok(linux.isClaudeProcess({ exe: null, argv: ['/snap/claude-ai-desktop/47/app/desktop-for-claude.bin'] }, snap)); // exe not readable
+  assert.ok(!linux.isClaudeProcess({ exe: '/usr/bin/snap', argv: ['snap', 'run', 'claude-ai-desktop'] }, snap));
+  assert.ok(!linux.isClaudeProcess({ exe: '/snap/other/1/app/x', argv: [] }, snap));
+});
+
+test('snap: account folders in hidden places are refused with a clear message, others allowed', () => {
+  const name = 'claude-ai-desktop';
+  const home = '/home/u';
+  assert.equal(linux.snapDataDirProblem('/home/u/snap/claude-ai-desktop/common/multi-launcher/profiles/a', name, home), null);
+  assert.equal(linux.snapDataDirProblem('/home/u/ClaudeProfiles/a', name, home), null);
+  assert.equal(linux.snapDataDirProblem('/data/profiles/a', name, home), null);
+  assert.match(linux.snapDataDirProblem('/home/u/.config/Claude Multi Launcher/profiles/a', name, home), /hidden folders/);
+});
