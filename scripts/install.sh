@@ -32,9 +32,10 @@ cp "$here/../build/icon.png" "$icon_dir/claude-multi-launcher.png" 2>/dev/null |
 # A user-level install cannot give Electron's sandbox helper the setuid bit, and many systems (Ubuntu 24.04 among them)
 # block the alternative. The launcher only ever shows its own local window, never web pages, so it runs with --no-sandbox.
 # Use the .deb or AppImage from the releases page if you would rather have the sandbox.
+# The command starts the launcher in the background, so the terminal you typed it in is free straight away.
 cat > "$bin_dir/claude-multi-launcher" <<LAUNCH
 #!/bin/sh
-exec "$dest/$name" --no-sandbox "\$@"
+setsid "$dest/$name" --no-sandbox "\$@" >/dev/null 2>&1 &
 LAUNCH
 chmod +x "$bin_dir/claude-multi-launcher"
 
