@@ -14,6 +14,12 @@ All notable changes to this project are recorded here. The format follows
   `npm run install-app:linux` for a per-user install without sudo.
 - Support for the community Snap Store app `claude-ai-desktop`: found automatically, its processes matched by snap
   folder, and accounts kept under `~/snap/claude-ai-desktop/common` because the snap sandbox blocks hidden folders.
+- Linux: **Catch sign-in links** setting. It makes the launcher the system handler for `claude://` links, routes each
+  sign-in to the account that began it, hands other links to the Default Claude, and puts the previous handler back
+  when switched off.
+- Linux: when nothing says which account began a sign-in, the account that started most recently is used (also after
+  the launcher itself was restarted).
+- The installed `claude-multi-launcher` command now starts in the background instead of holding the terminal.
 - `CML_CLAUDE_PATH` and `CML_CLAUDE_DATA` to point the launcher at an unusual Claude Desktop install.
 
 ### Changed

@@ -47,7 +47,7 @@ test('scanInstances finds one instance per main process, with its tree, data fol
   ]);
   const found = (await linux.scanInstances({ procRoot: root, claude })).sort((a, b) => a.pid - b.pid);
   assert.equal(found.length, 2);
-  assert.deepEqual(found[0], { pid: 100, dataDir: null, pids: [100, 101], memBytes: (800 + 200) * 1024 });
+  assert.deepEqual(found[0], { pid: 100, startedAt: null, dataDir: null, pids: [100, 101], memBytes: (800 + 200) * 1024 });
   assert.equal(found[1].dataDir, '/home/u/My Profiles/work');
   assert.deepEqual(found[1].pids.sort(), [200, 201, 202]);
   assert.equal(found[1].memBytes, (2000 + 100 + 300) * 1024); // no smaps_rollup: falls back to RSS
@@ -134,4 +134,15 @@ test('snap: account folders in hidden places are refused with a clear message, o
   assert.equal(linux.snapDataDirProblem('/home/u/ClaudeProfiles/a', name, home), null);
   assert.equal(linux.snapDataDirProblem('/data/profiles/a', name, home), null);
   assert.match(linux.snapDataDirProblem('/home/u/.config/Claude Multi Launcher/profiles/a', name, home), /hidden folders/);
+});
+
+test('start time is read from /proc stat, even when the command name contains spaces and brackets', async () => {
+  const root = tmp();
+  fakeProc(root, [{ pid: 7, ppid: 1, argv: [EXE], exe: EXE }]);
+  fs.writeFileSync(path.join(root, 'stat'), 'cpu  1 2 3\nbtime 1000\n');
+  // field 22 (starttime) is 500 ticks = 5 s after boot; the command name "(a (b) c)" must not shift the fields
+  const fields = ['S', '1', ...Array(17).fill('0'), '500', '0'];
+  fs.writeFileSync(path.join(root, '7', 'stat'), `7 (a (b) c) ${fields.join(' ')}\n`);
+  const [inst] = await linux.scanInstances({ procRoot: root, claude });
+  assert.equal(inst.startedAt, 1000 * 1000 + 5000);
 });

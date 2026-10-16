@@ -168,6 +168,19 @@ function parseUserDataDirArgs(argv) {
   return null;
 }
 
+// When did this process start? /proc/<pid>/stat counts clock ticks since boot (field 22; the command name in field 2 may
+// contain spaces, so count from the closing bracket) and /proc/stat gives the boot time. Null if anything is unreadable.
+function startTimeMs(procRoot, pid) {
+  try {
+    const stat = fs.readFileSync(path.join(procRoot, String(pid), 'stat'), 'utf8');
+    const ticks = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]);
+    const btime = Number(/^btime\s+(\d+)/m.exec(fs.readFileSync(path.join(procRoot, 'stat'), 'utf8'))[1]);
+    return Number.isFinite(ticks) && Number.isFinite(btime) ? btime * 1000 + (ticks / 100) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
 function readProc(procRoot, pid) {
   const dir = path.join(procRoot, String(pid));
   let status;
@@ -190,6 +203,7 @@ function readProc(procRoot, pid) {
   };
   return {
     pid,
+    startMs: startTimeMs(procRoot, pid),
     ppid: num('PPid'),
     rssBytes: num('VmRSS') * 1024,
     exe,
@@ -263,6 +277,7 @@ async function scanInstances({ procRoot = '/proc', claude } = {}) {
       const tree = treeOf(p);
       return {
         pid: p.pid,
+        startedAt: p.startMs,
         dataDir: parseUserDataDirArgs(p.argv),
         pids: tree.map((t) => t.pid),
         memBytes: tree.reduce((sum, t) => sum + (pssBytes(procRoot, t.pid) ?? t.rssBytes), 0),

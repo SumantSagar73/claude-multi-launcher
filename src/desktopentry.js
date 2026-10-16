@@ -20,14 +20,15 @@ const execLine = (args) => args.map(execArg).join(' ');
 // Values other than Exec only need newlines removed.
 const plain = (s) => String(s).replace(/[\r\n]+/g, ' ');
 
-function buildDesktopEntry({ name, comment, exec, icon, wmClass, extra = {} }) {
+// fieldCode is appended as is (for example %u, the link the system wants opened); it must not be quoted or doubled.
+function buildDesktopEntry({ name, comment, exec, icon, wmClass, fieldCode, extra = {} }) {
   const lines = [
     '[Desktop Entry]',
     'Type=Application',
     'Version=1.0',
     `Name=${plain(name)}`,
     comment ? `Comment=${plain(comment)}` : null,
-    `Exec=${execLine(exec)}`,
+    `Exec=${execLine(exec)}${fieldCode ? ` ${fieldCode}` : ''}`,
     icon ? `Icon=${plain(icon)}` : null,
     'Terminal=false',
     'Categories=Network;Utility;',

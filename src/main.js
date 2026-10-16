@@ -18,6 +18,7 @@ const { createShortcut } = require('./shortcut');
 const { findLeftovers, removeLeftovers } = require('./handlercheck');
 const { computeGrid } = require('./layout');
 const desktop = require('./desktopentry');
+const linkHandler = require('./linkhandler');
 
 const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
@@ -42,6 +43,8 @@ const arg = (name, argv = process.argv) => (argv.find((a) => a.startsWith(`--${n
 const SCREENSHOT = arg('screenshot');
 const HIDDEN = process.argv.includes('--hidden');
 const OPEN_ARG = arg('open'); // launched from a per-account shortcut or hotkey
+const linkArg = (argv) => argv.find((a) => /^claude:\/\//i.test(a)) || null; // the system handed us a claude:// link
+const LINK_ARG = linkArg(process.argv);
 
 const WATCH_AFTER_OPEN_MS = 10 * 60 * 1000;
 const WATCH_AFTER_AUTH_MS = 5 * 60 * 1000;
@@ -61,7 +64,9 @@ let quitting = false;
 let snap = { profiles: [], running: new Map(), at: 0 };
 let claudeInfo = null;
 let claudeError = null;
-let caps = { trim: false, tile: false, focus: false, style: false, reason: '' }; // what this system lets the launcher do
+let caps = { trim: false, tile: false, focus: false, style: false, linkHandler: false, reason: '' };
+let lastHandlerCheck = 0;
+let linkHandlerOn = false; // is this launcher the system's handler for claude:// links? (Linux) // what this system lets the launcher do
 let refreshTimer = null;
 let trayKey = '';
 let watchUntil = 0;
@@ -111,6 +116,10 @@ async function refresh() {
   try {
     claudeInfo = await claude.findClaude();
     claudeError = null;
+    if (caps.linkHandler && Date.now() - lastHandlerCheck > 30_000) {
+      lastHandlerCheck = Date.now();
+      linkHandlerOn = await linkHandler.isOn();
+    }
     await takeSnapshot();
     noticeClaudeUpdate();
     syncHelper();
@@ -174,6 +183,7 @@ function buildState() {
       autoFreeMemory: store.settings.autoFreeMemory !== false,
       autoCloseHours: store.settings.autoCloseHours || 0,
       startWithWindows: autostartOn(),
+      linkHandler: linkHandlerOn,
       canAutostart: IS_LINUX || app.isPackaged,
       canShortcuts: IS_LINUX || app.isPackaged,
     },
@@ -459,14 +469,18 @@ function syncWatcher() {
   else watcher.stop();
 }
 
-// Windows hands every claude:// link to the Default Claude, which refuses a sign-in it did not start. The link is
-// on the command line of the Claude.exe process Windows just started, so pass it to the account that did start it.
-async function onClaudeProcess({ commandLine }) {
-  // Links the launcher forwarded itself, or other profiles' own processes, carry these flags. Only ignore those.
-  if (/--user-data-dir|--type=/.test(commandLine)) return;
-  const url = router.extractClaudeUrl(commandLine);
-  if (!url || !router.isLoginCallback(url)) return;
+// When did each running account start? Used when nothing says which account began a sign-in (for example the launcher
+// was restarted since the account was opened): the most recently started one is the likeliest.
+function launchTimes(running) {
+  const times = new Map(lastLaunched);
+  for (const [id, inst] of running) if (id !== 'default' && inst.startedAt && !times.has(id)) times.set(id, inst.startedAt);
+  return times;
+}
 
+// Decides which account a claude:// link belongs to and passes it there. forwardOthers: the launcher received the link
+// itself (it is the system's handler), so a link that is not a sign-in, or that belongs to Default, has to be handed on
+// rather than left for Claude to find.
+async function routeLink(url, { forwardOthers }) {
   const now = Date.now();
   if (now - (recentLinks.get(url) || 0) < DEDUPE_MS) return;
   recentLinks.set(url, now);
@@ -474,26 +488,49 @@ async function onClaudeProcess({ commandLine }) {
 
   try {
     const { profiles, running } = await takeSnapshot();
+    const what = router.describeUrl(url);
+    const toDefault = async (why) => {
+      if (!forwardOthers) {
+        note(`Sign-in link ${what} belongs to Default (${why}); left alone.`);
+        return;
+      }
+      await claude.launchProfile(profiles.find((p) => p.isDefault), url);
+      note(`Link ${what} → Default (${why})`);
+    };
+    if (!router.isLoginCallback(url)) {
+      if (forwardOthers) await toDefault('not a sign-in link');
+      return;
+    }
     const choice = router.chooseLoginTarget({
       profiles,
       running: new Set(running.keys()),
       hints: collectLoginHints(running, profiles),
-      lastLaunched,
+      lastLaunched: launchTimes(running),
       now,
     });
-    const what = router.describeUrl(url);
     if (choice.id === 'default') {
-      note(`Sign-in link ${what} belongs to Default (${choice.reason}); left alone.`);
-      return;
+      await toDefault(choice.reason);
+    } else {
+      const target = profiles.find((p) => p.id === choice.id);
+      await claude.launchProfile(target, url);
+      lastLaunched.set(target.id, Date.now());
+      note(`Sign-in link ${what} → ${target.name} (${choice.reason})`);
     }
-    const target = profiles.find((p) => p.id === choice.id);
-    await claude.launchProfile(target, url);
-    lastLaunched.set(target.id, Date.now());
-    note(`Sign-in link ${what} → ${target.name} (${choice.reason})`);
   } catch (e) {
-    note(`Could not pass on the sign-in link: ${e.message}`);
+    note(`Could not pass on the link: ${e.message}`);
   }
   refresh();
+}
+
+// Without the launcher as handler, the system hands every claude:// link to the Default Claude, which refuses a sign-in
+// it did not start. The link is on the command line of the Claude process the system just started, so pass it to the
+// account that did start it.
+async function onClaudeProcess({ commandLine }) {
+  // Links the launcher forwarded itself, or other profiles' own processes, carry these flags. Only ignore those.
+  if (/--user-data-dir|--type=/.test(commandLine)) return;
+  const url = router.extractClaudeUrl(commandLine);
+  if (!url || !router.isLoginCallback(url)) return;
+  await routeLink(url, { forwardOthers: false });
 }
 
 // ---------- actions from the window ----------
@@ -590,6 +627,17 @@ const actions = {
       if (!AUTO_CLOSE_HOURS_OPTIONS.includes(hours)) throw new Error('Not a valid auto-close time.');
       store.setSetting('autoCloseHours', hours);
       lastAutoCloseWarn.clear();
+    } else if (key === 'linkHandler') {
+      if (!caps.linkHandler) throw new Error('This system has no xdg-mime, so the launcher cannot take over claude:// links.');
+      const stateFile = path.join(app.getPath('userData'), 'previous-link-handler');
+      if (value) {
+        await linkHandler.enable({ exec: selfCommand(), icon: launcherIconPath(), stateFile });
+        note('The launcher now receives claude:// sign-in links and passes each to the account that started it.');
+      } else {
+        const back = await linkHandler.disable({ stateFile });
+        note(back ? `Claude links go straight to ${back} again.` : 'The launcher no longer handles claude:// links.');
+      }
+      linkHandlerOn = await linkHandler.isOn();
     } else if (key === 'startWithWindows') {
       if (IS_LINUX) {
         desktop.setAutostart(!!value, { exec: [...selfCommand(), '--hidden'], icon: launcherIconPath() });
@@ -678,6 +726,15 @@ const actions = {
             ]
           : [
               {
+                label: 'Sign-in links',
+                ok: true, // informational: either way links are caught, but the handler is the dependable way
+                detail: !caps.linkHandler
+                  ? 'watching for links only (xdg-mime not found)'
+                  : linkHandlerOn
+                    ? 'the launcher receives claude:// links and routes each one'
+                    : 'not the handler yet: turn on "Catch sign-in links" in Settings for dependable sign-in routing',
+              },
+              {
                 label: 'Window tools',
                 ok: true, // informational: missing tools only switch off tiling and idle-close
                 detail: caps.focus ? `xdotool found (${claude.sessionType()}): tiling and idle-close are available` : `tiling and idle-close are off: ${caps.reason}`,
@@ -764,7 +821,7 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => {
-    if (!HIDDEN && !SCREENSHOT && !OPEN_ARG) win.show();
+    if (!HIDDEN && !SCREENSHOT && !OPEN_ARG && !LINK_ARG) win.show();
   });
   win.on('close', (e) => {
     if (!quitting) {
@@ -852,7 +909,9 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_e, argv) => {
     const openArg = arg('open', argv);
-    if (openArg) openAccountByArg(openArg);
+    const link = linkArg(argv);
+    if (link) routeLink(link, { forwardOthers: true });
+    else if (openArg) openAccountByArg(openArg);
     else showWindow();
   });
   app.on('window-all-closed', () => {});
@@ -889,7 +948,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     helper.on('error-text', (t) => note(`Window helper problem: ${String(t).split(/\r?\n/)[0].slice(0, 160)}`));
     helper.on('tiled', ({ moved }) => note(`Tiled ${moved} account window${moved === 1 ? '' : 's'}.`));
-    caps = await WindowHelper.probe();
+    caps = { ...(await WindowHelper.probe()), linkHandler: IS_LINUX && (await linkHandler.available()) };
+    if (caps.linkHandler) linkHandlerOn = await linkHandler.isOn();
     createTray();
     // Populate claudeInfo etc. before the window (and so the renderer's first getState()/health() calls) exists,
     // so the UI never has a moment where it reports Claude "not found" purely because the check hadn't run yet.
@@ -898,6 +958,7 @@ if (!app.requestSingleInstanceLock()) {
     scheduleRefresh();
 
     if (OPEN_ARG) openAccountByArg(OPEN_ARG);
+    if (LINK_ARG) routeLink(LINK_ARG, { forwardOthers: true });
 
     // Accounts that are already open when the launcher starts may be mid sign-in.
     if (snap.profiles.some((p) => !p.isDefault && snap.running.has(p.id))) armWatch(WATCH_AFTER_OPEN_MS);

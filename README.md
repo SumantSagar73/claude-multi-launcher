@@ -138,7 +138,7 @@ The idea is the same: each account is a separate Claude Desktop started with its
 | | Windows | Linux |
 | --- | --- | --- |
 | Finding Claude | Store package lookup | `claude-desktop` on `PATH`, then the `.deb` install locations (or `CML_CLAUDE_PATH`) |
-| Sign-in links | Watches new processes for the `claude://` link | The same, by polling `/proc` (no extra tools or privileges needed) |
+| Sign-in links | Watches new processes for the `claude://` link | The same, by polling `/proc`. Better: turn on **Settings > Catch sign-in links**, which makes the launcher the system's handler for `claude://` links (undone by switching it off), so no link is missed. |
 | Telling windows apart | Own taskbar button, coloured icon, `[Name]` title | Each account's windows get their own window class (`--class`). The shortcut button creates an app-menu entry with that class and a coloured icon, which docks and task bars group by. Titles are not changed. |
 | Shortcuts | Start Menu `.lnk` | A `.desktop` entry in `~/.local/share/applications` |
 | Start with the system | Login item | `~/.config/autostart` entry |

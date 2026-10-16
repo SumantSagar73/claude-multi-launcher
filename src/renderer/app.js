@@ -163,6 +163,8 @@ function renderSettings(s) {
   $('set-trim').checked = s.settings.autoFreeMemory;
   $('row-trim').hidden = !caps.trim;
   $('row-autoclose').hidden = !caps.focus;
+  $('row-handler').hidden = !caps.linkHandler;
+  $('set-handler').checked = !!s.settings.linkHandler;
   $('autostart-label').textContent = s.platform.loginLabel;
   const auto = $('set-autostart');
   auto.checked = s.settings.startWithWindows;
@@ -315,6 +317,10 @@ $('copy-diag').addEventListener('click', async () => {
 });
 $('set-trim').addEventListener('change', (e) => run('setting', { key: 'autoFreeMemory', value: e.target.checked }));
 $('set-autostart').addEventListener('change', (e) => run('setting', { key: 'startWithWindows', value: e.target.checked }));
+$('set-handler').addEventListener('change', async (e) => {
+  const res = await run('setting', { key: 'linkHandler', value: e.target.checked });
+  if (!res.ok) e.target.checked = !e.target.checked;
+});
 $('set-autoclose').addEventListener('change', (e) => run('setting', { key: 'autoCloseHours', value: Number(e.target.value) }));
 $('tile').addEventListener('click', () => run('tile'));
 $('export').addEventListener('click', () => run('export'));
