@@ -41,10 +41,12 @@ function cleanColor(color) {
 }
 
 class ProfileStore {
-  constructor(userDataDir, claudeDataDir) {
+  // profilesRoot: where new accounts' data folders go. Defaults to the launcher's own folder; a sandboxed install of
+  // Claude (a snap) can only write elsewhere.
+  constructor(userDataDir, claudeDataDir, profilesRoot) {
     this.profilesFile = path.join(userDataDir, 'profiles.json');
     this.settingsFile = path.join(userDataDir, 'settings.json');
-    this.profilesRoot = path.join(userDataDir, 'profiles');
+    this.profilesRoot = profilesRoot || path.join(userDataDir, 'profiles');
     this.claudeDataDir = claudeDataDir;
     this.list = readJson(this.profilesFile, []).filter((p) => p && p.id && p.dataDir);
     this.settings = readJson(this.settingsFile, {});

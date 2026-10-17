@@ -31,6 +31,33 @@ Data on disk: %APPDATA%\Claude Multi Launcher\profiles\<id>\  (one Claude data f
               plus profiles.json, settings.json and launcher.log next to them.
 ```
 
+## Linux
+
+The same app runs on Linux with these parts swapped, each behind the same interface, picked by `process.platform`:
+
+| Windows | Linux | Notes |
+| --- | --- | --- |
+| `claude.js` (PowerShell, `Get-AppxPackage`, `taskkill`) | `claude-linux.js` | Finds `claude-desktop` (`PATH`, the `.deb` locations, `CML_CLAUDE_PATH`), scans `/proc`, quits with SIGTERM then SIGKILL on the tree |
+| `linkwatch.js` + `linkwatch.ps1` | `linkwatch-linux.js` | Polls `/proc` every 25 ms but only reads process ids it has not seen |
+| `winhelper.js` + `winhelper.ps1` | `winhelper-linux.js` | `xdotool` for tiling and for knowing which window is in front; no styling, no trim |
+| `shortcut.js` (`.lnk`) | `desktopentry.js` | `.desktop` files for per-account entries and autostart |
+
+`WindowHelper.probe()` reports what the system allows (`trim`, `tile`, `focus`, `style`). `main.js` puts that in the
+state it sends to the window, and the UI hides what is not available. Idle-close needs `focus`, because without knowing
+which window is in front every account would look idle.
+
+Facts about `/proc` that the code relies on, found by running it against a real Electron app:
+
+- Chromium's child processes rewrite their title, so `/proc/<pid>/cmdline` for them is one space-separated string
+  instead of NUL-separated arguments. `splitCmdline` handles both. The main process keeps proper arguments, which is
+  what `--user-data-dir` is read from.
+- Children are not direct children of the main process (a zygote sits in between), so the tree is followed through
+  every Claude process, not just one level.
+- A wrapper script is allowed: `/proc/<pid>/exe` shows the real binary, so the wrapper's `exec` target is collected too.
+
+Each non-default account is started with `--class=claude-multi-<id>`, which sets the window class on X11 and the app id
+on Wayland. The shortcut button writes a `.desktop` file with the same `StartupWMClass`.
+
 ## Sign-in routing
 
 ![Sign-in routing: the browser sign-in ends at the Default Claude, the launcher reads the link from that process and forwards it to the account window that started the sign-in](sign-in-routing.svg)
@@ -134,3 +161,8 @@ exit on their own when the launcher does.
 ## Verified on
 
 Windows 11 (build 26200) with Claude Desktop 2.9939.x from the Microsoft Store.
+
+Linux: unit tests against a fake `/proc`, plus end-to-end runs under Xvfb with a stand-in for Claude Desktop (a copy of
+Electron that honours `--user-data-dir` and the single-instance lock). Not yet verified against the real `claude-desktop`
+package: check that it logs `[Auth] Using system browser` in `<data folder>/logs/main.log` and that its executable is
+found.

@@ -94,7 +94,7 @@
 
     <section class="settings-section" aria-labelledby="h-general">
       <h3 id="h-general">General</h3>
-      <label class="switch-row" for="set-trim">
+      <label class="switch-row" id="row-trim" for="set-trim">
         <span>
           <strong>Free memory from idle accounts</strong>
           <small>An account left in the background for 3 minutes gives its idle memory back. Never applied to Default.</small>
@@ -103,12 +103,19 @@
       </label>
       <label class="switch-row" for="set-autostart">
         <span>
-          <strong>Start with Windows</strong>
+          <strong id="autostart-label">Start with Windows</strong>
           <small id="autostart-hint"></small>
         </span>
         <input id="set-autostart" type="checkbox" role="switch">
       </label>
-      <label class="field-row" for="set-autoclose">
+      <label class="switch-row" id="row-handler" for="set-handler" hidden>
+        <span>
+          <strong>Catch sign-in links</strong>
+          <small>Makes the launcher the app that opens claude:// links, so a browser sign-in always reaches the account that started it. Turn off to hand links back to Claude Desktop.</small>
+        </span>
+        <input id="set-handler" type="checkbox" role="switch">
+      </label>
+      <label class="field-row" id="row-autoclose" for="set-autoclose">
         <span>Close an idle account after</span>
         <select id="set-autoclose">
           <option value="0">Never</option>

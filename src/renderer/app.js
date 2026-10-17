@@ -1,5 +1,8 @@
 'use strict';
 
+// Lets the stylesheet tell Windows (caption buttons drawn over our title bar) from systems with a normal window frame.
+document.documentElement.dataset.platform = window.launcher.platform;
+
 const PALETTE = ['#e07a5f', '#e8a23a', '#81b29a', '#6fa8dc', '#8e7dbe', '#d16ba5', '#4db6ac', '#a39b90'];
 
 const $ = (id) => document.getElementById(id);
@@ -96,7 +99,8 @@ function makeRow(p) {
   return { li, avatar, name, tag, hotkey, email, meta, free, shortcut, remove, quit, open };
 }
 
-function updateRow(r, p, canShortcuts) {
+function updateRow(r, p, s) {
+  const canShortcuts = s.settings.canShortcuts;
   r.li.classList.toggle('is-running', p.running);
   r.avatar.style.setProperty('--c', p.color);
   r.avatar.textContent = (p.name.trim()[0] || '?').toUpperCase();
@@ -110,8 +114,9 @@ function updateRow(r, p, canShortcuts) {
   const parts = [p.running ? `Running${p.memMB ? ` · ${(p.memMB / 1024).toFixed(1)} GB RAM` : ''}` : 'Not running'];
   if (p.diskGB) parts.push(`${p.diskGB} GB on disk${p.vmGB ? ` (Cowork VM ${p.vmGB} GB)` : ''}`);
   r.meta.textContent = parts.join(' · ');
-  r.free.hidden = !p.running || p.isDefault;
+  r.free.hidden = !p.running || p.isDefault || !s.platform.caps.trim;
   r.shortcut.hidden = !canShortcuts;
+  r.shortcut.title = `Make a ${s.platform.shortcutLabel} for this account`;
   r.remove.hidden = p.isDefault;
   r.quit.hidden = !p.running || p.isDefault;
   r.open.textContent = p.running ? 'Focus' : 'Open';
@@ -128,7 +133,7 @@ function renderList(s) {
       r.li.style.animationDelay = `${i * 50}ms`;
       rowEls.set(p.id, r);
     }
-    updateRow(r, p, s.settings.canShortcuts);
+    updateRow(r, p, s);
     if (list.children[i] !== r.li) list.insertBefore(r.li, list.children[i] || null);
   });
   for (const [id, r] of rowEls) {
@@ -137,7 +142,7 @@ function renderList(s) {
   $('empty').hidden = s.profiles.length > 1;
 
   const runningCount = s.profiles.filter((p) => !p.isDefault && p.running).length;
-  $('tile').hidden = runningCount < 2;
+  $('tile').hidden = runningCount < 2 || !s.platform.caps.tile;
 }
 
 // ---------- link routing card ----------
@@ -146,19 +151,26 @@ function renderLinks(s) {
   const { active, secondsLeft } = s.watch;
   $('pill').className = 'pill' + (active ? ' on' : '');
   $('pill-text').textContent = active ? `Watching · ${Math.max(1, Math.ceil(secondsLeft / 60))} min left` : 'Idle';
+  const system = s.platform.os === 'win32' ? 'Windows' : 'your system';
   $('links-text').textContent = active
-    ? 'When a browser sign-in finishes, Windows hands the link to your default Claude. The launcher catches it and passes it to the account that started the sign-in.'
+    ? `When a browser sign-in finishes, ${system} hands the link to your default Claude. The launcher catches it and passes it to the account that started the sign-in.`
     : 'Turns on by itself when you open an account or start a sign-in, so signing in to another account completes in the right window. Press the button if a sign-in needs more time.';
   $('watch').textContent = active ? 'Extend by 10 minutes' : 'Watch for 10 minutes';
 }
 
 function renderSettings(s) {
+  const caps = s.platform.caps;
   $('set-trim').checked = s.settings.autoFreeMemory;
+  $('row-trim').hidden = !caps.trim;
+  $('row-autoclose').hidden = !caps.focus;
+  $('row-handler').hidden = !caps.linkHandler;
+  $('set-handler').checked = !!s.settings.linkHandler;
+  $('autostart-label').textContent = s.platform.loginLabel;
   const auto = $('set-autostart');
   auto.checked = s.settings.startWithWindows;
   auto.disabled = !s.settings.canAutostart;
   $('autostart-hint').textContent = s.settings.canAutostart
-    ? 'Opens the launcher in the tray when you sign in to Windows.'
+    ? `Opens the launcher in the tray when you sign in${s.platform.os === 'win32' ? ' to Windows' : ''}.`
     : 'Available in the installed app. See the README to build and install it.';
   const autoclose = $('set-autoclose');
   if (document.activeElement !== autoclose) autoclose.value = String(s.settings.autoCloseHours);
@@ -305,6 +317,10 @@ $('copy-diag').addEventListener('click', async () => {
 });
 $('set-trim').addEventListener('change', (e) => run('setting', { key: 'autoFreeMemory', value: e.target.checked }));
 $('set-autostart').addEventListener('change', (e) => run('setting', { key: 'startWithWindows', value: e.target.checked }));
+$('set-handler').addEventListener('change', async (e) => {
+  const res = await run('setting', { key: 'linkHandler', value: e.target.checked });
+  if (!res.ok) e.target.checked = !e.target.checked;
+});
 $('set-autoclose').addEventListener('change', (e) => run('setting', { key: 'autoCloseHours', value: Number(e.target.value) }));
 $('tile').addEventListener('click', () => run('tile'));
 $('export').addEventListener('click', () => run('export'));

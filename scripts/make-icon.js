@@ -1,5 +1,5 @@
 'use strict';
-// Writes build/icon.ico from the same four-dot artwork the app draws at runtime.
+// Writes build/icon.ico (Windows) and build/icon.png (Linux) from the same four-dot artwork the app draws at runtime.
 const fs = require('node:fs');
 const path = require('node:path');
 const { makeIconPng } = require('../src/icon');
@@ -29,3 +29,8 @@ const out = path.join(__dirname, '..', 'build', 'icon.ico');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, Buffer.concat([header, ...entries, ...pngs]));
 console.log(`wrote ${out} (${sizes.join(', ')} px)`);
+
+// Linux packages want a plain PNG, at least 512 px for electron-builder.
+const png = path.join(__dirname, '..', 'build', 'icon.png');
+fs.writeFileSync(png, makeIconPng(512));
+console.log(`wrote ${png} (512 px)`);

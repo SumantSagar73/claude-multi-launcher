@@ -100,4 +100,7 @@ class WindowHelper extends EventEmitter {
   }
 }
 
-module.exports = { WindowHelper };
+// Windows can do everything the PowerShell helper offers. Other platforms report what they can do (winhelper-linux.js).
+WindowHelper.probe = async () => ({ trim: true, tile: true, focus: true, style: true, reason: '' });
+
+module.exports = { WindowHelper: process.platform === 'win32' ? WindowHelper : require('./winhelper-linux').WindowHelper };

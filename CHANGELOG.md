@@ -3,6 +3,40 @@
 All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Linux support (Ubuntu 22.04+ / Debian 12+, with the `claude-desktop` package): list, open, focus and quit accounts,
+  sign-in routing by watching `/proc`, per-account app-menu entries (`.desktop`) with their own window class and icon,
+  start at login, tray menu, hotkeys on X11, per-account memory measured as PSS.
+- Tiling and idle-close on X11 sessions with `xdotool`; switched off on Wayland.
+- AppImage, `.deb` and `.tar.gz` builds (`npm run release` on Linux), and `npm run package:linux` /
+  `npm run install-app:linux` for a per-user install without sudo.
+- Support for the community Snap Store app `claude-ai-desktop`: found automatically, its processes matched by snap
+  folder, and accounts kept under `~/snap/claude-ai-desktop/common` because the snap sandbox blocks hidden folders.
+- Linux: **Catch sign-in links** setting. It makes the launcher the system handler for `claude://` links, routes each
+  sign-in to the account that began it, hands other links to the Default Claude, and puts the previous handler back
+  when switched off.
+- Linux: each extra account gets its own window class and an app-menu entry `Claude (Name)` with a coloured icon, written
+  when the account is opened or edited and removed with it, so the dock and task switcher can tell accounts apart. On
+  Wayland, accounts are started through XWayland (`--ozone-platform=x11`) so the class is honoured;
+  `CML_NATIVE_WAYLAND=1` opts out.
+- Linux: while **Catch sign-in links** is on, the launcher takes the handler back when Claude Desktop re-claims it at
+  start-up, and a link handed to the launcher is never ignored because the process watcher saw it first.
+- Linux: a command line that Chromium rewrote into one string no longer breaks account detection when the data folder
+  has spaces in its name.
+- Linux: when nothing says which account began a sign-in, the account that started most recently is used (also after
+  the launcher itself was restarted).
+- The installed `claude-multi-launcher` command now starts in the background instead of holding the terminal.
+- `CML_CLAUDE_PATH` and `CML_CLAUDE_DATA` to point the launcher at an unusual Claude Desktop install.
+
+### Changed
+- Settings and buttons that a system cannot support are hidden instead of failing (for example "Free memory" on Linux).
+- Idle-close now keeps track of which account is in front even when "Free memory" is turned off.
+
+### Known limitations
+- Linux: freeing memory from idle accounts is not available, and window titles are not prefixed with the account name.
+
 ## [1.0.0] - 2026-09-25
 
 First public release.
@@ -24,4 +58,5 @@ First public release.
 - Windows 10/11 x64 and the Microsoft Store version of Claude Desktop only.
 - Builds are unsigned, so Windows SmartScreen may warn on first run.
 
+[Unreleased]: https://github.com/SumantSagar73/claude-multi-launcher/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/SumantSagar73/claude-multi-launcher/releases/tag/v1.0.0

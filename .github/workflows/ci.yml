@@ -10,7 +10,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,12 +26,8 @@ jobs:
       - run: npm ci
 
       - name: Syntax check
-        shell: pwsh
-        run: |
-          Get-ChildItem src -Recurse -Filter *.js | ForEach-Object {
-            node --check $_.FullName
-            if ($LASTEXITCODE -ne 0) { exit 1 }
-          }
+        shell: bash
+        run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
 
       - name: Unit tests
         run: npm test

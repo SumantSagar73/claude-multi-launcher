@@ -4,8 +4,8 @@ Thanks for helping. This is a small project, so the process is light.
 
 ## Set up
 
-Needs Windows 10/11, Node.js 24 or newer, and Claude Desktop from the Microsoft Store (so there is something to
-launch).
+Needs Node.js 24 or newer and Claude Desktop (from the Microsoft Store on Windows, or the `claude-desktop` package on
+Ubuntu/Debian) so there is something to launch.
 
 ```powershell
 npm install
@@ -30,6 +30,17 @@ This tool sits next to someone's real Claude data. When you run or test it:
   launcher's own window (see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for `CML_ZOOM` and `CML_CLICK`). To check
   where a window landed, read its rectangle (`GetWindowRect`) rather than photographing the screen.
 
+On Linux, a scratch folder and a fake Claude make it safe to try things (the unit tests need neither):
+
+```bash
+export CML_USER_DATA=$(mktemp -d)               # launcher accounts
+export CML_CLAUDE_DATA=$(mktemp -d)             # stands in for ~/.config/Claude (the Default account)
+export CML_CLAUDE_PATH=/path/to/claude-desktop  # optional: a stand-in executable
+npm start -- --no-sandbox                       # --no-sandbox is needed when running from node_modules
+```
+
+Under a headless machine use `xvfb-run`. `electron . --screenshot=out.png` works there too.
+
 ## Making a change
 
 - Put decisions in small pure functions (`router.js`, `layout.js`, `profiles.js`) and add a test in `test/`. Anything
@@ -43,7 +54,7 @@ This tool sits next to someone's real Claude data. When you run or test it:
 
 1. Fork, branch from `main`, keep the change focused.
 2. Describe what changed and how you tested it. The pull request template has a short checklist.
-3. CI runs the tests on Windows and must pass.
+3. CI runs the tests on Windows and Linux and must pass.
 
 ## Releasing (maintainers)
 

@@ -3,6 +3,9 @@
 const { execFile, spawn } = require('node:child_process');
 const path = require('node:path');
 
+const IS_WIN = process.platform === 'win32';
+const linux = IS_WIN ? null : require('./claude-linux');
+
 const PS = ['-NoProfile', '-NonInteractive', '-Command'];
 
 function powershell(script, timeout = 15000) {
@@ -18,6 +21,7 @@ let exeCache = { at: 0, value: null };
 
 // The Store install lives in a versioned folder, so look it up each time instead of remembering a path.
 async function findClaude() {
+  if (!IS_WIN) return linux.findClaude();
   if (exeCache.value && Date.now() - exeCache.at < 60_000) return exeCache.value;
   const out = await powershell(
     'Get-AppxPackage -Name Claude | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty InstallLocation',
@@ -39,7 +43,11 @@ function parseUserDataDir(commandLine) {
   return m ? m[1] ?? m[2] ?? m[3] : null;
 }
 
-const norm = (p) => path.normalize(p).replace(/[\\/]+$/, '').toLowerCase();
+// Windows paths ignore case; Linux paths do not.
+const norm = (p) => {
+  const n = path.normalize(p).replace(/[\\/]+$/, '');
+  return IS_WIN ? n.toLowerCase() : n;
+};
 
 /**
  * Running Claude Desktop instances, one per main process. A main process is a Claude.exe without --type=.
@@ -47,6 +55,7 @@ const norm = (p) => path.normalize(p).replace(/[\\/]+$/, '').toLowerCase();
  * Returns [{ pid, dataDir|null, pids (whole process tree), memBytes }]
  */
 async function scanInstances() {
+  if (!IS_WIN) return linux.scanInstances();
   const out = await powershell(
     "Get-CimInstance Win32_Process -Filter \"Name='Claude.exe'\" | " +
       'Select-Object ProcessId,ParentProcessId,WorkingSetSize,ExecutablePath,CommandLine | ConvertTo-Json -Compress',
@@ -91,6 +100,7 @@ function matchInstance(instances, profile) {
 
 // Launching again with the same --user-data-dir hands the request (and any URL) to the running instance.
 async function launchProfile(profile, url) {
+  if (!IS_WIN) return linux.launchProfile(profile, url);
   const { exe } = await findClaude();
   const args = [];
   if (!profile.isDefault) args.push(`--user-data-dir=${profile.dataDir}`);
@@ -108,10 +118,16 @@ function taskkill(pid, force) {
 
 // Ask nicely first; Claude may only hide its window, so force the tree down if it is still there.
 async function quitInstance(pid) {
+  if (!IS_WIN) return linux.quitInstance(pid);
   await taskkill(pid, false);
   await new Promise((r) => setTimeout(r, 3000));
   const still = (await scanInstances()).some((i) => i.pid === pid);
   if (still) await taskkill(pid, true);
 }
 
-module.exports = { findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };
+// Linux-only helpers; the Windows build neither uses a window class nor needs the session type.
+const wmClassFor = (profile) => (linux ? linux.wmClassFor(profile) : null);
+const dataHints = () => (linux ? linux.dataHints() : {});
+const sessionType = () => (linux ? linux.sessionType() : 'windows');
+
+module.exports = { wmClassFor, sessionType, dataHints, findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };
