@@ -7,6 +7,9 @@ const path = require('node:path');
 const linux = require('../src/claude-linux');
 const { LinkWatcher, isClaudeLinkLaunch } = require('../src/linkwatch-linux');
 
+// These build a fake /proc with symlinks and use POSIX paths, so they only make sense where the code runs: Linux.
+const linuxOnly = { skip: process.platform === 'win32' && 'needs /proc and POSIX paths' };
+
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cml-linux-'));
 
 // Builds a fake /proc with the files the launcher reads.
@@ -31,7 +34,7 @@ test('parseUserDataDirArgs reads both Chromium spellings, including paths with s
   assert.equal(linux.parseUserDataDirArgs(['x', '--user-data-dir']), null);
 });
 
-test('scanInstances finds one instance per main process, with its tree, data folder and memory', async () => {
+test('scanInstances finds one instance per main process, with its tree, data folder and memory', linuxOnly, async () => {
   const root = tmp();
   fakeProc(root, [
     // Default account: no --user-data-dir
@@ -53,7 +56,7 @@ test('scanInstances finds one instance per main process, with its tree, data fol
   assert.equal(found[1].memBytes, (2000 + 100 + 300) * 1024); // no smaps_rollup: falls back to RSS
 });
 
-test('Chromium child processes that rewrite their title as one string are still recognised as children', async () => {
+test('Chromium child processes that rewrite their title as one string are still recognised as children', linuxOnly, async () => {
   const root = tmp();
   fakeProc(root, [
     { pid: 100, ppid: 1, argv: [EXE, '--user-data-dir=/home/u/p'], exe: EXE },
@@ -64,15 +67,9 @@ test('Chromium child processes that rewrite their title as one string are still 
   const found = await linux.scanInstances({ procRoot: root, claude });
   assert.equal(found.length, 1);
   assert.deepEqual(found[0].pids.sort(), [100, 101, 102]);
-  assert.deepEqual(linux.splitCmdline('/a/b --x=1 --y\0'), ['/a/b', '--x=1', '--y']);
-  assert.deepEqual(linux.splitCmdline('/a/b\0--x=1 2\0'), ['/a/b', '--x=1 2']); // a real argv is never re-split
-  // a rewritten command line must keep a data folder with spaces whole
-  const rewritten = '/usr/lib/claude-desktop/claude-desktop --user-data-dir=/home/u/.config/Claude Multi Launcher/profiles/abc --class=claude-multi-abc claude://login/x';
-  assert.equal(linux.parseUserDataDirArgs(linux.splitCmdline(rewritten)), '/home/u/.config/Claude Multi Launcher/profiles/abc');
-  assert.deepEqual(linux.splitCmdline(rewritten).slice(-2), ['--class=claude-multi-abc', 'claude://login/x']);
 });
 
-test('processes that vanish or cannot be read are skipped', async () => {
+test('processes that vanish or cannot be read are skipped', linuxOnly, async () => {
   const root = tmp();
   fs.mkdirSync(path.join(root, '55')); // directory with no files, as if the process just exited
   fakeProc(root, [{ pid: 56, argv: [EXE], exe: EXE }]);
@@ -96,7 +93,7 @@ test('isClaudeLinkLaunch accepts Claude (or its wrapper script) carrying a link 
   assert.ok(!isClaudeLinkLaunch(['/usr/bin/firefox', 'claude://login'], names));
 });
 
-test('LinkWatcher reports a process that appears after it started, and ignores ones already there', async () => {
+test('LinkWatcher reports a process that appears after it started, and ignores ones already there', linuxOnly, async () => {
   const root = tmp();
   fakeProc(root, [{ pid: 10, argv: ['/opt/Claude/claude-desktop', 'claude://login/old'], exe: EXE }]);
   const w = new LinkWatcher(null, { procRoot: root });
@@ -116,7 +113,7 @@ test('LinkWatcher reports a process that appears after it started, and ignores o
   assert.match(seen[0].commandLine, /code=2/);
 });
 
-test('snap: names, data folders and process matching', () => {
+test('snap: names, data folders and process matching', linuxOnly, () => {
   assert.equal(linux.snapNameOf('/snap/bin/claude-ai-desktop'), 'claude-ai-desktop');
   assert.equal(linux.snapNameOf('/usr/bin/claude-desktop'), null);
 
@@ -131,7 +128,7 @@ test('snap: names, data folders and process matching', () => {
   assert.ok(!linux.isClaudeProcess({ exe: '/snap/other/1/app/x', argv: [] }, snap));
 });
 
-test('snap: account folders in hidden places are refused with a clear message, others allowed', () => {
+test('snap: account folders in hidden places are refused with a clear message, others allowed', linuxOnly, () => {
   const name = 'claude-ai-desktop';
   const home = '/home/u';
   assert.equal(linux.snapDataDirProblem('/home/u/snap/claude-ai-desktop/common/multi-launcher/profiles/a', name, home), null);
@@ -140,7 +137,7 @@ test('snap: account folders in hidden places are refused with a clear message, o
   assert.match(linux.snapDataDirProblem('/home/u/.config/Claude Multi Launcher/profiles/a', name, home), /hidden folders/);
 });
 
-test('start time is read from /proc stat, even when the command name contains spaces and brackets', async () => {
+test('start time is read from /proc stat, even when the command name contains spaces and brackets', linuxOnly, async () => {
   const root = tmp();
   fakeProc(root, [{ pid: 7, ppid: 1, argv: [EXE], exe: EXE }]);
   fs.writeFileSync(path.join(root, 'stat'), 'cpu  1 2 3\nbtime 1000\n');
@@ -157,4 +154,13 @@ test('account windows go through XWayland on a Wayland session so they can have 
   assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'x11', DISPLAY: ':0' }), []);
   assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'wayland' }), []); // no XWayland to go through
   assert.deepEqual(linux.windowSystemArgs({ XDG_SESSION_TYPE: 'wayland', DISPLAY: ':0', CML_NATIVE_WAYLAND: '1' }), []);
+});
+
+test('splitCmdline keeps real arguments whole and splits a rewritten one only at options and links', () => {
+  assert.deepEqual(linux.splitCmdline('/a/b --x=1 --y\0'), ['/a/b', '--x=1', '--y']);
+  assert.deepEqual(linux.splitCmdline('/a/b\0--x=1 2\0'), ['/a/b', '--x=1 2']); // a real argv is never re-split
+  // a rewritten command line must keep a data folder with spaces whole
+  const rewritten = '/usr/lib/claude-desktop/claude-desktop --user-data-dir=/home/u/.config/Claude Multi Launcher/profiles/abc --class=claude-multi-abc claude://login/x';
+  assert.equal(linux.parseUserDataDirArgs(linux.splitCmdline(rewritten)), '/home/u/.config/Claude Multi Launcher/profiles/abc');
+  assert.deepEqual(linux.splitCmdline(rewritten).slice(-2), ['--class=claude-multi-abc', 'claude://login/x']);
 });
