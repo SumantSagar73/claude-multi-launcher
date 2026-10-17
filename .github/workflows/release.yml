@@ -49,7 +49,7 @@ jobs:
             Set-Content release/SHA256SUMS.txt -Encoding ascii
           Get-Content release/SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-release-files
           retention-days: 7
@@ -102,7 +102,7 @@ jobs:
           cd release
           sha256sum *.AppImage *.deb *.tar.gz | tee SHA256SUMS-linux.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-release-files
           retention-days: 7
