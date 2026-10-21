@@ -19,6 +19,7 @@ const { findLeftovers, removeLeftovers } = require('./handlercheck');
 const { computeGrid } = require('./layout');
 const desktop = require('./desktopentry');
 const linkHandler = require('./linkhandler');
+const { backupProfiles, pruneBackups } = require('./backup');
 
 const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
@@ -66,6 +67,9 @@ let snap = { profiles: [], running: new Map(), at: 0 };
 let claudeInfo = null;
 let claudeError = null;
 let caps = { trim: false, tile: false, focus: false, style: false, linkHandler: false, reason: '' };
+let updateInfo = null; // { installed, candidate } when the system's package manager offers a newer Claude Desktop (Linux)
+let lastUpdateCheck = 0;
+let updating = false;
 let lastHandlerCheck = 0;
 let lastHandlerNote = 0;
 let linkHandlerOn = false; // is this launcher the system's handler for claude:// links? (Linux)
@@ -120,6 +124,7 @@ async function refresh() {
     claudeInfo = await claude.findClaude();
     claudeError = null;
     maintainLinkHandler();
+    await checkForClaudeUpdate();
     await takeSnapshot();
     noticeClaudeUpdate();
     syncHelper();
@@ -187,6 +192,7 @@ function buildState() {
       canAutostart: IS_LINUX || app.isPackaged,
       canShortcuts: IS_LINUX || app.isPackaged,
     },
+    update: updateInfo && updateInfo.available ? { ...updateInfo, busy: updating } : null,
     platform: {
       os: process.platform,
       loginLabel: IS_WIN ? 'Start with Windows' : 'Start at login',
@@ -547,6 +553,94 @@ async function routeLink(url, { forwardOthers }) {
   refresh();
 }
 
+// Are these programs on the PATH?
+async function haveTools(names) {
+  const dirs = (process.env.PATH || '').split(':');
+  return names.every((n) => dirs.some((d) => d && fs.existsSync(path.join(d, n))));
+}
+
+// ---------- updating Claude Desktop (Linux, apt) ----------
+
+async function checkForClaudeUpdate(force) {
+  if (!caps.update || updating) return;
+  if (!force && Date.now() - lastUpdateCheck < 30 * 60 * 1000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    updateInfo = claudeInfo && claudeInfo.snap ? null : await claude.updateInfo(); // a snap updates itself
+  } catch {
+    updateInfo = null;
+  }
+}
+
+// One update for the whole machine: every account uses the same Claude Desktop. The launcher's own accounts are closed
+// and backed up first and reopened afterwards; the Default Claude is never closed, so it has to be closed by the user.
+async function updateClaudeDesktop() {
+  if (!caps.update) throw new Error('Updating from here needs apt and pkexec, which this system does not have.');
+  if (updating) throw new Error('An update is already running.');
+  await checkForClaudeUpdate(true);
+  if (!updateInfo || !updateInfo.available) throw new Error('Claude Desktop is already up to date.');
+  await takeSnapshot();
+  if (snap.running.has('default')) {
+    throw new Error('Close your Default Claude first (the launcher never closes it), then press Update again. Updating files under a running Claude can break it.');
+  }
+  const open = nonDefaultRunning();
+  const { response } = process.env.CML_TEST_NO_DIALOG
+    ? { response: 0 }
+    : await confirmBox({
+        type: 'question',
+        message: `Update Claude Desktop to ${updateInfo.candidate}?`,
+        detail:
+          (open.length ? `These accounts will be closed and reopened afterwards: ${open.map((p) => p.name).join(', ')}.\n\n` : '') +
+          'A copy of your accounts\' sign-in data is saved first. You will be asked for your password to install the update. ' +
+          'Your Default Claude is not touched.',
+        buttons: ['Update', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+  if (response !== 0) return;
+
+  updating = true;
+  push();
+  try {
+    for (const p of open) {
+      note(`Closing ${p.name} for the update…`);
+      await claude.quitInstance(snap.running.get(p.id).pid);
+    }
+    const root = path.join(app.getPath('userData'), 'backups');
+    const { dest, count } = backupProfiles(store.list, root);
+    pruneBackups(root, 2);
+    note(`Saved a copy of ${count} account${count === 1 ? '' : 's'} to ${dest}.`);
+
+    note(`Updating Claude Desktop ${updateInfo.installed} → ${updateInfo.candidate}…`);
+    // Fixed command, nothing user-supplied. "update" may report an unrelated broken repository, which must not stop the upgrade.
+    await new Promise((resolve, reject) => {
+      execFile(
+        process.env.CML_PKEXEC || 'pkexec',
+        ['sh', '-c', 'apt-get update -qq; apt-get install --only-upgrade -y claude-desktop'],
+        { timeout: 20 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 },
+        (err, _out, stderr) => {
+          if (!err) resolve();
+          else if (err.code === 126 || err.code === 127) reject(new Error('The password prompt was cancelled, so nothing was updated.'));
+          else reject(new Error(`The update failed: ${String(stderr || err.message).trim().split('\n').slice(-2).join(' ').slice(0, 200)}`));
+        },
+      );
+    });
+
+    claudeInfo = null;
+    claude.resetCache();
+    note(`Claude Desktop is now ${(await claude.findClaude()).version}. Reopening your accounts…`);
+    for (const p of open) {
+      syncLinuxEntry(p);
+      await claude.launchProfile(p);
+    }
+    note('Done. If an account asks you to sign in again, your saved copy is in the backups folder next to the launcher\'s accounts.');
+  } finally {
+    updating = false;
+    await checkForClaudeUpdate(true); // only once "updating" is off, or the check is skipped
+    await refresh();
+  }
+}
+
 // Claude Desktop claims claude:// for itself every time it starts, which undoes the user's choice. While "Catch sign-in
 // links" is on, notice that and take the handler back. Cheap (one xdg-mime call), so it also runs a few seconds after
 // each account is opened, which is when Claude does it.
@@ -671,6 +765,10 @@ const actions = {
     if (!p) return;
     fs.mkdirSync(p.dataDir, { recursive: true });
     await shell.openPath(p.dataDir);
+  },
+
+  async 'claude:update'() {
+    await updateClaudeDesktop();
   },
 
   async trim(id) {
@@ -1007,7 +1105,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     helper.on('error-text', (t) => note(`Window helper problem: ${String(t).split(/\r?\n/)[0].slice(0, 160)}`));
     helper.on('tiled', ({ moved }) => note(`Tiled ${moved} account window${moved === 1 ? '' : 's'}.`));
-    caps = { ...(await WindowHelper.probe()), linkHandler: IS_LINUX && (await linkHandler.available()) };
+    caps = { ...(await WindowHelper.probe()), linkHandler: IS_LINUX && (await linkHandler.available()), update: IS_LINUX && (await haveTools(['apt-cache', 'pkexec'])) };
     if (caps.linkHandler) linkHandlerOn = await linkHandler.isOn();
     createTray();
     // Populate claudeInfo etc. before the window (and so the renderer's first getState()/health() calls) exists,

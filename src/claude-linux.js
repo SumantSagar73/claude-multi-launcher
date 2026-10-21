@@ -136,6 +136,10 @@ function realExecutables(exe) {
 
 let cache = { at: 0, value: null };
 
+function resetCache() {
+  cache = { at: 0, value: null };
+}
+
 async function findClaude() {
   if (cache.value && Date.now() - cache.at < 60_000) return cache.value;
   const exe = await locateClaude();
@@ -344,6 +348,19 @@ async function quitInstance(pid, opts = {}) {
   }
 }
 
+// `apt-cache policy` shows the installed and the newest available version without needing root. Only as fresh as the
+// system's package lists (most systems refresh them daily).
+function parseAptPolicy(text) {
+  const installed = (/^\s*Installed:\s*(\S+)/m.exec(text) || [])[1];
+  const candidate = (/^\s*Candidate:\s*(\S+)/m.exec(text) || [])[1];
+  if (!installed || installed === '(none)' || !candidate || candidate === '(none)') return null;
+  return { installed, candidate, available: candidate !== installed };
+}
+
+async function updateInfo() {
+  return parseAptPolicy(await run('apt-cache', ['policy', 'claude-desktop']));
+}
+
 const sessionType = () => process.env.XDG_SESSION_TYPE || (process.env.WAYLAND_DISPLAY ? 'wayland' : process.env.DISPLAY ? 'x11' : 'unknown');
 
 module.exports = {
@@ -353,6 +370,9 @@ module.exports = {
   launchProfile,
   quitInstance,
   parseUserDataDirArgs,
+  parseAptPolicy,
+  updateInfo,
+  resetCache,
   dataHints,
   snapNameOf,
   snapPaths,

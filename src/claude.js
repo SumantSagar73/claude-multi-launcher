@@ -127,7 +127,13 @@ async function quitInstance(pid) {
 
 // Linux-only helpers; the Windows build neither uses a window class nor needs the session type.
 const wmClassFor = (profile) => (linux ? linux.wmClassFor(profile) : null);
+// Forget the cached lookup (after an update changed the installed version).
+const resetCache = () => {
+  exeCache = { at: 0, value: null };
+  if (linux) linux.resetCache();
+};
+const updateInfo = () => (linux ? linux.updateInfo() : Promise.resolve(null));
 const dataHints = () => (linux ? linux.dataHints() : {});
 const sessionType = () => (linux ? linux.sessionType() : 'windows');
 
-module.exports = { wmClassFor, sessionType, dataHints, findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };
+module.exports = { resetCache, wmClassFor, sessionType, dataHints, updateInfo, findClaude, scanInstances, matchInstance, launchProfile, quitInstance, parseUserDataDir, norm };

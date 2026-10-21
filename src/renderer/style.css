@@ -250,6 +250,7 @@ dialog form { display: grid; gap: var(--s4); }
 .toast-btn { flex: none; background: transparent; border: 1px solid var(--border-strong); color: var(--text); border-radius: 999px; padding: 2px 10px; font: 500 var(--t-sm) / 1.4 var(--font); cursor: pointer; }
 .toast-btn:hover { background: var(--surface-2); }
 /* Log lines and errors are meant to be copied. */
+.update-banner { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .log, .banner, .error { user-select: text; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

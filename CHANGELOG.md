@@ -6,6 +6,9 @@ All notable changes to this project are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- Linux: an **Update** banner when the package manager offers a newer `claude-desktop`. One button closes the launcher's
+  accounts, saves a copy of their sign-in data (without VM images and caches; the two newest copies are kept), runs the
+  upgrade through `pkexec`, and reopens the accounts. It refuses while the Default Claude is open and never closes it.
 - Linux support (Ubuntu 22.04+ / Debian 12+, with the `claude-desktop` package): list, open, focus and quit accounts,
   sign-in routing by watching `/proc`, per-account app-menu entries (`.desktop`) with their own window class and icon,
   start at login, tray menu, hotkeys on X11, per-account memory measured as PSS.

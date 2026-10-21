@@ -153,6 +153,8 @@ exit on their own when the launcher does.
 | --- | --- |
 | `CML_USER_DATA` | Use another data folder, so tests never touch real accounts |
 | `CML_BACKGROUND_MS` | Shorten the 3-minute idle timer |
+| `CML_PKEXEC` | Linux: replace `pkexec` for the Claude Desktop update (a stand-in in tests) |
+| `CML_TEST_NO_DIALOG` | Skip the update confirmation dialog, so a test can drive the update without clicking |
 | `CML_ZOOM` | With `--screenshot`, zoom the window contents |
 | `CML_CLICK` | With `--screenshot`, click a CSS selector before capturing |
 

@@ -35,6 +35,9 @@ check.
   (Linux: an app-menu entry) for any account. Tile several account windows on screen with one click.
 - **Easy on memory (Windows).** Accounts left in the background give their idle memory back (about 1.6 GB down to about
   0.2 GB in testing). Optionally close an account after it has been idle for a set number of hours.
+- **One-click Claude Desktop updates (Linux).** When a newer `claude-desktop` is available, the launcher shows an
+  **Update** banner. One button closes your extra accounts, saves a copy of their sign-in data, runs the update (it asks
+  for your password) and reopens them. Your Default Claude is never closed.
 - **Know what each account costs.** Per-account RAM and disk use, including the large Cowork VM image.
 - **Set up new accounts faster.** Copy another account's MCP server settings into a new one when you add it.
 - **Backup and diagnostics.** Export and import your account list (names, colours and emails only, no logins), a health
@@ -163,6 +166,7 @@ The idea is the same: each account is a separate Claude Desktop started with its
 | Finding Claude | Store package lookup | `claude-desktop` on `PATH`, then the `.deb` install locations, then the community snap (or `CML_CLAUDE_PATH`) |
 | Sign-in links | Watches new processes for the `claude://` link | The same, by polling `/proc`. Better: turn on **Settings > Catch sign-in links**, which makes the launcher the system's handler for `claude://` links (undone by switching it off), so no link is missed. |
 | Telling windows apart | Own taskbar button, coloured icon, `[Name]` title | Each extra account gets its own window class and an app-menu entry `Claude (Name)` with a coloured icon (made when you open or edit the account), which the dock and task switcher group by. On Wayland the account is started through XWayland, because Wayland fixes a window's identity inside the app; set `CML_NATIVE_WAYLAND=1` to keep native Wayland (then all accounts look alike). Titles are not changed. |
+| Updating Claude Desktop | The Store updates it | **Update** banner in the launcher (apt; needs `pkexec`). A copy of the extra accounts' sign-in data goes to `~/.config/Claude Multi Launcher/backups/` first (the two newest are kept). The snap updates itself. |
 | Shortcuts | Start Menu `.lnk` | A `.desktop` entry in `~/.local/share/applications` |
 | Start with the system | Login item | `~/.config/autostart` entry |
 | Free memory from idle accounts | Yes | **Not available.** There is no safe equivalent of trimming a working set without special privileges. |
@@ -192,6 +196,7 @@ The idea is the same: each account is a separate Claude Desktop started with its
 | Linux: the launcher will not start and mentions the sandbox | The `.tar.gz` and a user-level install cannot give Electron's helper the setuid bit, and Ubuntu 24.04 blocks the alternative. Start it with `--no-sandbox` (the install script already does). The launcher only shows its own local window, never web pages. The `.deb` and AppImage do not need this. |
 | Linux: signing in to another account lands in the wrong window | Turn on **Settings > Catch sign-in links** and check *Activity* for where the link went. Accounts must be started by the launcher (not by hand) so it knows which is which. If your `claude-desktop` is a wrapper script that drops extra arguments, it must pass `"$@"` through. |
 | Linux: the browser asks which app should open `claude://` links | Choose *Claude Multi Launcher (sign-in links)* (and tick "always" if offered). Choosing *Claude* sends the link to your Default account. |
+| Linux: an account asks to sign in again after a Claude Desktop update | Update from the launcher's **Update** banner so the accounts are closed first. A copy of their data is in `~/.config/Claude Multi Launcher/backups/<time>/<account id>`; close the account, copy that folder's contents over the account's folder and open it again. This can only help if the new version still reads the old data. |
 | Every sign-in ends up in the same account | That is the browser's account choice, not the launcher's. Pick another Google account, or sign in from a private window or another browser profile. |
 | Linux: all accounts share one dock icon | Quit the accounts and **Open** them again from the launcher: windows opened before the update keep their old identity. On Wayland the launcher starts accounts through XWayland to give them their own class (`CML_NATIVE_WAYLAND=1` turns that off). Log out and in once if the dock still shows a generic icon. |
 | Something else | **Settings > Copy diagnostics**, then paste the result into a new issue. |

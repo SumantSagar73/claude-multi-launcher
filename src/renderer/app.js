@@ -232,6 +232,14 @@ function render(s) {
   const banner = $('banner');
   banner.hidden = !s.claudeError;
   banner.textContent = s.claudeError || '';
+  const upd = $('update-banner');
+  upd.hidden = !(s.update && s.platform.caps.update);
+  if (!upd.hidden) {
+    $('update-text').textContent = s.update.busy
+      ? `Updating Claude Desktop to ${s.update.candidate}… Your accounts reopen when it is done.`
+      : `Claude Desktop ${s.update.candidate} is available (you have ${s.update.installed}). It updates all your accounts at once.`;
+    $('update-btn').disabled = !!s.update.busy;
+  }
   renderList(s);
   renderLinks(s);
   renderSettings(s);
@@ -322,6 +330,10 @@ $('set-handler').addEventListener('change', async (e) => {
   if (!res.ok) e.target.checked = !e.target.checked;
 });
 $('set-autoclose').addEventListener('change', (e) => run('setting', { key: 'autoCloseHours', value: Number(e.target.value) }));
+$('update-btn').addEventListener('click', async () => {
+  $('update-btn').disabled = true;
+  await run('claude:update');
+});
 $('tile').addEventListener('click', () => run('tile'));
 $('export').addEventListener('click', () => run('export'));
 $('import').addEventListener('click', () => run('import'));
