@@ -99,7 +99,7 @@
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^44.4.5",
+    "electron": "^44.9.2",
     "electron-builder": "^26.0.0"
   }
 }
